@@ -69,6 +69,31 @@ export async function appendLedgerEvent(input: {
 }
 
 // -------------------------------------------------------------
+// Challenge code
+// -------------------------------------------------------------
+
+export async function issueChallenge(input: { workflow_id: string }) {
+  return postJson<{ ok: true; challenge_code: string; challenge_issued_at: string }>(
+    "/api/challenge/issue",
+    input
+  );
+}
+
+export async function verifyChallenge(input: {
+  workflow_id: string;
+  submitted: string;
+  captured_at?: string;
+}) {
+  return postJson<{
+    ok: true;
+    match: boolean;
+    expired: boolean;
+    age_seconds: number;
+    passed: boolean;
+  }>("/api/challenge/verify", input);
+}
+
+// -------------------------------------------------------------
 // Export (tranche pack)
 // -------------------------------------------------------------
 

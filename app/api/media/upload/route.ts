@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { createClient as createServerSupabase } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeEventHash } from "@/lib/ledger";
-import { analyzeMotion, runAllChecks } from "@/lib/fraud";
+import { analyzeMotion, frameChangeMeanHamming, runAllChecks } from "@/lib/fraud";
 import type { Media, Workflow } from "@/lib/types";
 
 // Server-side evidence upload + fraud pipeline.
@@ -40,6 +40,10 @@ interface UploadPayload {
   video_storage_path?: string | null;
   video_mime_type?: string | null;
   video_bytes?: number | null;
+  // Optical-flow proxy (Point 2): dHashes of frames sampled during the 15s
+  // recording. Server computes the mean pairwise Hamming distance and folds
+  // it into Layer 3 (screen-replay detection).
+  frame_dhashes?: string[] | null;
 }
 
 export async function POST(req: Request) {
@@ -99,6 +103,10 @@ export async function POST(req: Request) {
     payload.gyro_samples && payload.gyro_samples.length > 0
       ? analyzeMotion(payload.gyro_samples)
       : 0;
+  // Optical-flow proxy: mean Hamming distance between consecutive dHashes.
+  // Undefined if the client sent fewer than 2 hashes (e.g. MediaRecorder
+  // unavailable, sampling errors). Layer 3 gracefully falls back without it.
+  const frameChangeAvg = frameChangeMeanHamming(payload.frame_dhashes ?? []);
 
   // 3. Existing perceptual hashes for duplicate check (all within this org)
   const { data: existingMedia } = await admin
@@ -119,6 +127,7 @@ export async function POST(req: Request) {
       challengeSubmitted: payload.challenge_submitted,
       challengeIssuedAt: new Date(workflow.meta.challenge_issued_at),
       capturedAt: new Date(payload.captured_at),
+      frameChangeAvg,
     },
     workflow.meta,
     existingHashes
@@ -153,7 +162,7 @@ export async function POST(req: Request) {
     fraud_result: fraud,
     source: "real",
   };
-  // Extend meta with gyro + optional video-pointer fields.
+  // Extend meta with gyro + optional video-pointer + optical-flow fields.
   const metaWithExtras: Media["meta"] = {
     ...mediaMeta,
     gyro_samples_count: payload.gyro_samples?.length ?? 0,
@@ -163,6 +172,12 @@ export async function POST(req: Request) {
           video_storage_path: payload.video_storage_path,
           video_mime_type: payload.video_mime_type ?? undefined,
           video_bytes: payload.video_bytes ?? undefined,
+        }
+      : {}),
+    ...(payload.frame_dhashes && payload.frame_dhashes.length > 0
+      ? {
+          frame_dhashes: payload.frame_dhashes,
+          frame_change_avg: frameChangeAvg,
         }
       : {}),
   };

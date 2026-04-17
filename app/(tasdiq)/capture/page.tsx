@@ -30,7 +30,12 @@ interface CapturePayload {
   // Optional video artifact — present when MediaRecorder succeeded.
   videoBlob: Blob | null;
   videoMimeType: string | null;
+  // Optical-flow proxy (Point 2): dHashes of frames sampled during recording.
+  // Server uses their mean Hamming distance to refine Layer 3 screen-replay.
+  frameDHashes: string[];
 }
+
+const FRAME_SAMPLE_COUNT = 6; // sampled at RECORD_SECONDS / 6 intervals
 
 type ResultView = FraudResult & { mediaId: string };
 
@@ -273,6 +278,8 @@ function CaptureScreen({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const videoChunksRef = useRef<Blob[]>([]);
+  const frameDHashesRef = useRef<string[]>([]);
+  const sampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [gps, setGps] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
@@ -399,6 +406,7 @@ function CaptureScreen({
     motionRef.current = [];
     gyroRef.current = [];
     videoChunksRef.current = [];
+    frameDHashesRef.current = [];
     setRecording(true);
     setRecordCountdown(RECORD_SECONDS);
 
@@ -433,11 +441,41 @@ function CaptureScreen({
       }
     }
 
-    // Sensor + countdown loop for exactly RECORD_SECONDS.
+    // Sensor + countdown loop for exactly RECORD_SECONDS. At FRAME_SAMPLE_COUNT
+    // evenly-spaced moments we also grab a still frame and compute its dHash
+    // — that array becomes the optical-flow proxy on the server (Layer 3).
     const start = Date.now();
+    const sampleInterval = (RECORD_SECONDS * 1000) / FRAME_SAMPLE_COUNT;
+    const nextSampleAtRef = { current: start + sampleInterval / 2 };
+    const sampleCanvas =
+      sampleCanvasRef.current ??
+      (sampleCanvasRef.current = document.createElement("canvas"));
     const iv = setInterval(() => {
-      const elapsed = (Date.now() - start) / 1000;
+      const now = Date.now();
+      const elapsed = (now - start) / 1000;
       setRecordCountdown(Math.max(0, RECORD_SECONDS - Math.floor(elapsed)));
+      // Grab a frame if we've crossed the next sample boundary and the video
+      // element is producing frames. Small canvas (64x48) keeps this cheap.
+      if (
+        now >= nextSampleAtRef.current &&
+        frameDHashesRef.current.length < FRAME_SAMPLE_COUNT &&
+        videoRef.current &&
+        videoRef.current.videoWidth > 0
+      ) {
+        try {
+          sampleCanvas.width = 64;
+          sampleCanvas.height = 48;
+          const sctx = sampleCanvas.getContext("2d");
+          if (sctx) {
+            sctx.drawImage(videoRef.current, 0, 0, 64, 48);
+            const imgData = sctx.getImageData(0, 0, 64, 48);
+            frameDHashesRef.current.push(dHashFromImageData(imgData));
+          }
+        } catch {
+          // ignore sampling errors — optical-flow proxy is additive, not required
+        }
+        nextSampleAtRef.current += sampleInterval;
+      }
     }, 100);
     await new Promise((r) => setTimeout(r, RECORD_SECONDS * 1000));
     clearInterval(iv);
@@ -505,6 +543,7 @@ function CaptureScreen({
       },
       videoBlob,
       videoMimeType: chosenMime,
+      frameDHashes: frameDHashesRef.current.slice(),
     });
   }
 
@@ -683,6 +722,7 @@ function UploadScreen({
           video_storage_path: videoStoragePath,
           video_mime_type: capture.videoMimeType,
           video_bytes: videoBytes,
+          frame_dhashes: capture.frameDHashes,
         })
       );
 

@@ -6,3 +6,10 @@ node_modules/
 .DS_Store
 dist/
 coverage/
+tsconfig.tsbuildinfo
+
+# Private specs + session memory — kept local, not shared on GitHub
+CLAUDE.md
+CORE_PLATFORM_SPEC.md
+TASDIQ_VERTICAL_SPEC.md
+docs/ARCHITECTURE.md

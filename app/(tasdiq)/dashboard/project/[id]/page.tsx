@@ -474,9 +474,162 @@ function EvidenceCard({ media }: { media: Media }) {
           )}
           <FraudScoreBar score={r.aggregate_score} />
           <FraudCheckList result={r} />
+          <EvidenceGpsMap
+            lat={media.meta.gps.lat}
+            lng={media.meta.gps.lng}
+            accuracy={media.meta.gps.accuracy}
+          />
+          <SensorVariancePanel
+            motionVariance={media.meta.motion_variance}
+            gyroVariance={media.meta.gyro_variance}
+            lightingVariance={media.meta.lighting_variance}
+            frameChangeAvg={media.meta.frame_change_avg}
+            frameSamples={media.meta.frame_dhashes?.length}
+          />
           <div className="text-xs text-slate-500 font-mono">storage: {media.storage_path}</div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Small OpenStreetMap embed centered on the capture GPS. No API key required.
+// bbox chosen to show ~250 m of context around the pin.
+function EvidenceGpsMap({
+  lat,
+  lng,
+  accuracy,
+}: {
+  lat: number;
+  lng: number;
+  accuracy: number;
+}) {
+  const pad = 0.0025; // ~250 m at Tashkent latitude
+  const bbox = `${lng - pad},${lat - pad},${lng + pad},${lat + pad}`;
+  const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lng}`;
+  const osmLink = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=18/${lat}/${lng}`;
+  return (
+    <div className="rounded-md border border-slate-800 bg-slate-950/50 p-2">
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-[10px] uppercase tracking-wide text-slate-500">
+          Capture location
+        </div>
+        <a
+          href={osmLink}
+          target="_blank"
+          rel="noreferrer"
+          className="text-[10px] text-sky-400 hover:text-sky-300 underline"
+        >
+          open on OpenStreetMap
+        </a>
+      </div>
+      <iframe
+        title="capture location map"
+        src={src}
+        className="w-full h-48 rounded border border-slate-800 bg-slate-900"
+        loading="lazy"
+      />
+      <div className="text-[10px] text-slate-500 font-mono mt-1">
+        {lat.toFixed(5)}, {lng.toFixed(5)} · ±{accuracy.toFixed(0)} m
+      </div>
+    </div>
+  );
+}
+
+// Inline SVG bar showing where each sensor's variance sits on a log scale
+// against the Layer 2 "human tremor" pass zone [0.001, 1.0]. Tells the story
+// "your capture is inside/outside the healthy hand-hold range" at a glance.
+function SensorVariancePanel({
+  motionVariance,
+  gyroVariance,
+  lightingVariance,
+  frameChangeAvg,
+  frameSamples,
+}: {
+  motionVariance: number;
+  gyroVariance: number | undefined;
+  lightingVariance: number;
+  frameChangeAvg: number | undefined;
+  frameSamples: number | undefined;
+}) {
+  return (
+    <div className="rounded-md border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+      <div className="text-[10px] uppercase tracking-wide text-slate-500">
+        Sensor variance
+      </div>
+      <VarianceBar label="Accel (m/s²)" value={motionVariance} min={1e-5} max={10} passMin={0.001} passMax={1.0} />
+      {gyroVariance != null && (
+        <VarianceBar label="Gyro (°/s)" value={gyroVariance} min={1e-3} max={1e5} passMin={1} passMax={1e4} />
+      )}
+      <VarianceBar label="Lighting (luma)" value={lightingVariance} min={1e-4} max={1} passMin={0.02} passMax={1} />
+      {frameChangeAvg != null && frameSamples != null && (
+        <div className="pt-1 border-t border-slate-800 flex items-center justify-between text-[10px]">
+          <span className="text-slate-400">
+            Optical-flow proxy ({frameSamples} frames)
+          </span>
+          <span
+            className={`font-mono ${
+              frameChangeAvg >= 3 ? "text-emerald-300" : "text-rose-300"
+            }`}
+          >
+            {frameChangeAvg.toFixed(1)} bits/pair · {frameChangeAvg >= 3 ? "scene moved" : "scene frozen"}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VarianceBar({
+  label,
+  value,
+  min,
+  max,
+  passMin,
+  passMax,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  passMin: number;
+  passMax: number;
+}) {
+  const clamp = (x: number) => Math.max(min, Math.min(max, x));
+  const toPct = (x: number) => {
+    const lx = Math.log10(clamp(x));
+    const lmin = Math.log10(min);
+    const lmax = Math.log10(max);
+    return ((lx - lmin) / (lmax - lmin)) * 100;
+  };
+  const markerPct = toPct(value);
+  const passStart = toPct(passMin);
+  const passEnd = toPct(passMax);
+  const inside = value >= passMin && value <= passMax;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+        <span>{label}</span>
+        <span className={`font-mono ${inside ? "text-emerald-300" : "text-rose-300"}`}>
+          {value.toExponential(2)}
+        </span>
+      </div>
+      <div className="relative h-3 rounded bg-slate-800 overflow-hidden">
+        <div
+          className="absolute top-0 bottom-0 bg-emerald-900/60 border-x border-emerald-700/50"
+          style={{ left: `${passStart}%`, width: `${passEnd - passStart}%` }}
+        />
+        <div
+          className={`absolute top-0 bottom-0 w-0.5 ${inside ? "bg-emerald-300" : "bg-rose-400"}`}
+          style={{ left: `calc(${markerPct}% - 1px)` }}
+        />
+      </div>
+      <div className="flex justify-between text-[9px] text-slate-600 font-mono mt-0.5">
+        <span>{min.toExponential(0)}</span>
+        <span className="text-slate-500">pass zone</span>
+        <span>{max.toExponential(0)}</span>
+      </div>
     </div>
   );
 }

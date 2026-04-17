@@ -97,28 +97,55 @@ export function checkMotion(motionVariance: number): FraudCheck {
 
 // If the phone is nearly stationary while the camera observes motion in the frame,
 // the camera is looking at a moving screen. In our demo we proxy "observed motion"
-// with the lighting-variance of the captured frame's luma channel: a real scene
-// has highlights/shadows; a laptop playing a walkthrough tends to be uniform.
+// two ways:
+//   1. lighting-variance of the captured still — a real scene has highlights and
+//      shadows; a laptop playing a walkthrough tends to be uniform.
+//   2. mean Hamming distance between dHashes of frames sampled during the 15s
+//      recording. A genuine handheld capture of a construction site changes
+//      frame-to-frame (parallax, operator walk); a static screen replay barely
+//      changes at all. Threshold derived empirically: below ~3 bits out of 64
+//      means the scene is effectively frozen.
 //
 // detectScreenReplay returns true when fraud is detected.
 // passes ⇢ not a screen replay.
+const FRAME_CHANGE_FROZEN_THRESHOLD = 3; // bits (out of 64) below which scene is "frozen"
+
 export function detectScreenReplay(
   motionVariance: number,
-  lightingVariance: number
+  lightingVariance: number,
+  frameChangeAvg?: number
 ): boolean {
   const phoneFlat = motionVariance < 0.01;
   const uniformLighting = lightingVariance < 0.02;
-  return phoneFlat && uniformLighting;
+  const frozenScene =
+    typeof frameChangeAvg === "number" && frameChangeAvg < FRAME_CHANGE_FROZEN_THRESHOLD;
+  // Classic signal: phone still + uniform lighting.
+  if (phoneFlat && uniformLighting) return true;
+  // Optical-flow proxy: scene barely changes across 15s — regardless of the
+  // phone's motion. A moving hand pointed at a static screen still looks like
+  // a frozen scene to the optical-flow check.
+  if (frozenScene) return true;
+  return false;
 }
 
 // Returns a correlation score in [0, 1]. 1 = sensor and camera agree, 0 = totally inconsistent.
 export function sensorCameraCorrelation(
   motionVariance: number,
-  lightingVariance: number
+  lightingVariance: number,
+  frameChangeAvg?: number
 ): number {
-  // Healthy: both moderate. We map distance-from-ideal to a score.
   const motionOk = motionVariance >= 0.01 && motionVariance <= 1.5;
   const lightingOk = lightingVariance >= 0.02;
+  // When frame dHashes are available, their change rate is the strongest signal.
+  // We blend it with the static indicators: healthy scene change + healthy
+  // sensor motion = full 1.0; one signal weak drops to 0.5.
+  if (typeof frameChangeAvg === "number") {
+    const sceneOk = frameChangeAvg >= FRAME_CHANGE_FROZEN_THRESHOLD;
+    if (sceneOk && motionOk) return 1;
+    if (sceneOk && !motionOk) return 0.6;
+    if (!sceneOk && motionOk) return 0.3;
+    return 0;
+  }
   if (motionOk && lightingOk) return 1;
   if (!motionOk && !lightingOk) return 0;
   return 0.4;
@@ -126,10 +153,15 @@ export function sensorCameraCorrelation(
 
 export function checkScreenReplay(
   motionVariance: number,
-  lightingVariance: number
+  lightingVariance: number,
+  frameChangeAvg?: number
 ): FraudCheck {
-  const replay = detectScreenReplay(motionVariance, lightingVariance);
-  const correlation = sensorCameraCorrelation(motionVariance, lightingVariance);
+  const replay = detectScreenReplay(motionVariance, lightingVariance, frameChangeAvg);
+  const correlation = sensorCameraCorrelation(motionVariance, lightingVariance, frameChangeAvg);
+  const frameStr =
+    typeof frameChangeAvg === "number"
+      ? `, scene change ${frameChangeAvg.toFixed(1)} bits/pair`
+      : "";
   return {
     name: "screen_replay",
     label: "Sensor-Camera Consistency",
@@ -137,8 +169,8 @@ export function checkScreenReplay(
     weight: CHECK_WEIGHTS.screen_replay,
     score: replay ? 0 : correlation,
     details: replay
-      ? `Screen replay detected — phone is stationary (var ${motionVariance.toFixed(4)}) while camera frame is uniform (var ${lightingVariance.toFixed(4)})`
-      : `Sensor and camera agree — motion var ${motionVariance.toFixed(4)}, lighting var ${lightingVariance.toFixed(4)}`,
+      ? `Screen replay detected — motion var ${motionVariance.toFixed(4)}, lighting var ${lightingVariance.toFixed(4)}${frameStr}`
+      : `Sensor and camera agree — motion var ${motionVariance.toFixed(4)}, lighting var ${lightingVariance.toFixed(4)}${frameStr}`,
   };
 }
 
@@ -285,6 +317,22 @@ export interface CaptureInput {
   challengeSubmitted: string;
   challengeIssuedAt: Date;
   capturedAt: Date;
+  // Optional optical-flow proxy — mean Hamming distance between consecutive
+  // dHashes of frames sampled during the capture window.
+  frameChangeAvg?: number;
+}
+
+// Mean pairwise Hamming distance between consecutive dHashes in an ordered list.
+// Returns undefined when there are fewer than 2 hashes to compare.
+export function frameChangeMeanHamming(dhashes: string[]): number | undefined {
+  if (!Array.isArray(dhashes) || dhashes.length < 2) return undefined;
+  let total = 0;
+  let pairs = 0;
+  for (let i = 1; i < dhashes.length; i++) {
+    total += hammingDistance(dhashes[i - 1], dhashes[i]);
+    pairs++;
+  }
+  return pairs === 0 ? undefined : total / pairs;
 }
 
 export function runAllChecks(
@@ -295,7 +343,7 @@ export function runAllChecks(
   const checks: FraudCheck[] = [
     checkGeofence(capture.gps, project),
     checkMotion(capture.motionVariance),
-    checkScreenReplay(capture.motionVariance, capture.lightingVariance),
+    checkScreenReplay(capture.motionVariance, capture.lightingVariance, capture.frameChangeAvg),
     checkDuplicate(capture.photoHash, existingHashes),
     checkChallenge({
       submitted: capture.challengeSubmitted,
@@ -305,8 +353,12 @@ export function runAllChecks(
     }),
   ];
   const aggregate = checks.reduce((s, c) => s + c.score * c.weight, 0);
+  // Hard rule per Tasdiq spec: any single failed layer forces FLAGGED regardless
+  // of aggregate. A replay attack that defeats 4 of 5 layers still fails the 5th,
+  // and weighted-average alone could let it slip above 0.7.
+  const allPassed = checks.every((c) => c.passed);
   const verdict: "VERIFIED" | "FLAGGED" =
-    aggregate >= VERIFIED_THRESHOLD ? "VERIFIED" : "FLAGGED";
+    aggregate >= VERIFIED_THRESHOLD && allPassed ? "VERIFIED" : "FLAGGED";
   return { checks, aggregate_score: aggregate, verdict };
 }
 

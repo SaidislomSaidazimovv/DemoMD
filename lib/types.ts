@@ -140,6 +140,11 @@ export interface MediaMeta {
   video_storage_path?: string;
   video_mime_type?: string;
   video_bytes?: number;
+  // Optical-flow proxy (Point 2): N dHashes sampled during the 15s recording,
+  // and the mean Hamming distance between consecutive pairs. Higher distance
+  // = more scene change = less likely a static screen replay.
+  frame_dhashes?: string[];
+  frame_change_avg?: number;
 }
 
 export interface FraudCheck {
