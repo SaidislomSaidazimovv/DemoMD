@@ -1,42 +1,88 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "./mock-db";
-import type { Session } from "./types";
+import { createClient } from "./supabase/browser";
+import type { User, UserRole } from "./types";
 
+interface SessionInfo {
+  userId: string;
+  email: string;
+  profile: User | null;
+}
+
+// Returns the current Supabase auth user + their public.users profile row.
+// Resilient: any error inside hydrate still flips `loading` to false so callers
+// don't spin on "Loading…" forever. Logs problems to the console.
 export function useSession() {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<SessionInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const supabase = createClient();
     let cancelled = false;
-    supabase.auth.getSession().then((r) => {
-      if (cancelled) return;
-      setSession(r.data?.session ?? null);
-      setLoading(false);
+
+    async function hydrate() {
+      try {
+        const { data: userRes, error: userErr } = await supabase.auth.getUser();
+        if (cancelled) return;
+        if (userErr || !userRes.user) {
+          setSession(null);
+          return;
+        }
+        const { data: profile, error: profileErr } = await supabase
+          .from("users")
+          .select("*")
+          .eq("id", userRes.user.id)
+          .maybeSingle();
+        if (cancelled) return;
+        if (profileErr) {
+          console.error("useSession: failed to load profile", profileErr);
+        }
+        setSession({
+          userId: userRes.user.id,
+          email: userRes.user.email ?? "",
+          profile: (profile as User) ?? null,
+        });
+      } catch (e) {
+        console.error("useSession: hydrate error", e);
+        if (!cancelled) setSession(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    hydrate();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      // Only rehydrate on events that could change the session.
+      // INITIAL_SESSION fires right after mount; skip it since hydrate() already ran.
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "USER_UPDATED") {
+        hydrate();
+      }
     });
-    const sub = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s);
-    });
+
     return () => {
       cancelled = true;
-      sub.data.subscription.unsubscribe();
+      subscription.unsubscribe();
     };
   }, []);
 
   return { session, loading };
 }
 
-// Redirects out of the page if auth state doesn't match requirement.
-export function useRequireRole(allowed: string[], redirectTo = "/login") {
+// Guards a page behind role membership; redirects elsewhere if wrong.
+export function useRequireRole(allowed: UserRole[], onDenied = "/") {
   const { session, loading } = useSession();
   useEffect(() => {
     if (loading) return;
     if (!session) {
-      window.location.href = redirectTo;
-    } else if (allowed.length > 0 && !allowed.includes(session.user.role)) {
-      window.location.href = "/";
+      window.location.href = "/login";
+      return;
     }
-  }, [session, loading, allowed.join(","), redirectTo]);
+    if (session.profile && allowed.length > 0 && !allowed.includes(session.profile.role)) {
+      window.location.href = onDenied;
+    }
+  }, [session, loading, allowed.join(","), onDenied]);
   return { session, loading };
 }

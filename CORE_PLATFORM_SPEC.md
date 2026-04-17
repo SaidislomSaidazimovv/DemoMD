@@ -1,6 +1,19 @@
 # CORE PLATFORM SPEC — TASDIQ + BUTTERFLY
 ## The foundation you build once and never touch again.
-## April 16, 2026
+## April 16, 2026 (rev. April 17, 2026)
+
+---
+
+# LOCKED DECISIONS — READ FIRST
+
+These three decisions override anything else in this document. If a code snippet or
+section below contradicts them, the locked decision wins.
+
+1. **Single Next.js app with route groups.** No Turborepo. No Nx. No monorepo tooling. One `app/` directory. Tasdiq and Butterfly are route groups `(tasdiq)/` and `(butterfly)/`. They share `components/core/` and `lib/` natively. Zero DevOps overhead.
+
+2. **Vercel Node.js Serverless Functions for all logic.** No Deno. No Supabase Edge Functions except DB triggers that must fire inside Postgres. All routes live at `/api/...` in the Next.js App Router. PDF generation, image hashing, fraud checks, hash-chain writes — all in Vercel Serverless Functions. Saidislom stays in the Node ecosystem he knows.
+
+3. **Supabase Realtime is non-negotiable for V1.** Inspector captures scan on phone → scan appears live on banker's dashboard with green checkmark. No F5. No polling. Hook Realtime into `ledger_events`, `workflows`, and `media` tables. Worth the extra day.
 
 ---
 
@@ -10,12 +23,15 @@
 |-------|--------|-----|
 | Database | Supabase PostgreSQL | RLS for multi-tenancy. Saidislom knows it. Paid plan. |
 | Auth | Supabase Auth | Email/password + magic links. OTP for mobile. |
-| Storage | Supabase Storage | Evidence media (Tasdiq), training assets (Butterfly). |
-| Backend logic | Supabase Edge Functions (Deno/TS) | No server to maintain. Deploys with `supabase functions deploy`. |
+| Storage | Supabase Storage | Evidence media (Tasdiq), training assets (Butterfly). Bucket-level RLS keyed on `org_id`. |
+| Backend logic | **Vercel Node.js Serverless Functions** (Next.js App Router `/api/*`) | Single codebase with the frontend. Deploys with `vercel --prod`. Node ecosystem Saidislom already knows. |
 | Frontend | Next.js 14+ on Vercel | React (Saidislom's strength). App Router. Server components for dashboards. |
-| Realtime | Supabase Realtime | Live dashboard updates when evidence is uploaded or events fire. |
-| PDF generation | @react-pdf/renderer (Edge Function) | Generates tranche packs and compliance reports. |
-| Hash computation | Web Crypto API (SubtleCrypto.digest) | SHA-256 for ledger chain. Works in Edge Functions and browser. |
+| Realtime | Supabase Realtime | Live dashboard updates when evidence is uploaded or events fire. Enabled on `ledger_events`, `workflows`, `media`. |
+| PDF generation | `@react-pdf/renderer` (Node route) | Generates tranche packs and compliance reports. |
+| Hash computation (server) | Node `crypto.createHash("sha256")` | SHA-256 for the ledger chain, computed inside `/api/*` routes. |
+| Hash computation (browser) | Web Crypto API (`SubtleCrypto.digest`) | Hashing file bytes in the browser before upload, so the client-visible hash matches what the server records. |
+| Image processing | `sharp` (Node) | Perceptual hashing (dHash), frame extraction, thumbnails. |
+| ZIP packaging | `archiver` (Node) | Tranche-pack assembly. |
 
 ---
 
@@ -26,7 +42,7 @@
 - All columns: `snake_case`
 - All UUIDs: `gen_random_uuid()` default
 - All timestamps: `timestamptz`, default `now()`
-- Soft deletes: `deleted_at timestamptz null`
+- **Soft deletes: `deleted_at timestamptz null` — applies ONLY to auth-facing tables (`organizations`, `users`).** Business-data tables (`workflows`, `media`, `export_packs`) use state transitions and immutability instead of soft delete. `ledger_events` and `workflow_transitions` are append-only by design — never deleted, never updated.
 
 ---
 
@@ -93,7 +109,7 @@ create index idx_workflows_state on workflows(org_id, current_state);
 ```
 
 ### `workflow_transitions`
-Allowed state transitions per workflow type. Seeded at setup, not user-editable.
+Allowed state transitions per workflow type. Seeded at setup, immutable afterwards.
 
 ```sql
 create table workflow_transitions (
@@ -101,11 +117,17 @@ create table workflow_transitions (
   type        text not null,       -- matches workflows.type
   from_state  text not null,
   to_state    text not null,
-  required_role text[],            -- which roles can trigger this
-  auto_conditions jsonb,           -- conditions for auto-transition (optional)
+  required_role text[] not null default '{}',  -- which roles can trigger this
   unique(type, from_state, to_state)
 );
 ```
+
+**Auto-transitions are NOT database-driven.** Transitions annotated `(system)` in the seeded
+state machines (e.g. `CAPTURED → AUTO_VERIFIED` after fraud checks pass) are triggered by
+server code in the `/api/*` routes — the fraud pipeline calls `POST /api/transition`
+with the service-role key after it finishes scoring. There is no JSON DSL, no predicate
+evaluator, and no cron job. If a "system" transition is needed, the feature that owns
+that state writes the code that fires it.
 
 ### `ledger_events`
 Append-only. The audit trail that makes banks and HR departments trust you.
@@ -254,28 +276,85 @@ create policy "Exports insert"
   with check (org_id = auth.user_org_id());
 ```
 
+## STORAGE RLS
+
+Two buckets: `evidence` (Tasdiq media, Butterfly training assets) and `exports` (generated
+tranche packs + compliance reports). Objects are keyed as `<org_id>/<workflow_id>/<filename>`
+so the first path segment is always the org UUID. Policies below enforce that an authenticated
+user can only read/write paths whose first segment matches their `auth.user_org_id()`.
+
+```sql
+-- Buckets (idempotent)
+insert into storage.buckets (id, name, public)
+  values ('evidence', 'evidence', false)
+  on conflict (id) do nothing;
+insert into storage.buckets (id, name, public)
+  values ('exports', 'exports', false)
+  on conflict (id) do nothing;
+
+-- Evidence bucket: read + write within caller's org folder
+create policy "evidence read own org"
+  on storage.objects for select
+  using (
+    bucket_id = 'evidence'
+    and (storage.foldername(name))[1]::uuid = auth.user_org_id()
+  );
+
+create policy "evidence write own org"
+  on storage.objects for insert
+  with check (
+    bucket_id = 'evidence'
+    and (storage.foldername(name))[1]::uuid = auth.user_org_id()
+  );
+
+-- Exports bucket: same pattern
+create policy "exports read own org"
+  on storage.objects for select
+  using (
+    bucket_id = 'exports'
+    and (storage.foldername(name))[1]::uuid = auth.user_org_id()
+  );
+
+create policy "exports write own org"
+  on storage.objects for insert
+  with check (
+    bucket_id = 'exports'
+    and (storage.foldername(name))[1]::uuid = auth.user_org_id()
+  );
+
+-- No UPDATE or DELETE policies on storage.objects.
+-- Evidence files are immutable once uploaded (the ledger hashes them);
+-- export packs can be regenerated but old objects stay in place for audit.
+```
+
+Server-side uploads that need to bypass RLS (e.g. the export generator writing a tranche pack)
+must use the Supabase service-role key.
+
 ---
 
 ## WORKFLOW ENGINE
 
-### Transition logic (Edge Function)
+### Transition logic (Vercel Node route)
 
 ```
-POST /functions/v1/transition
+POST /api/transition
 Body: { workflow_id, to_state, payload? }
 ```
 
-The Edge Function does:
+The route does:
 1. Fetch workflow + current_state
 2. Check workflow_transitions for a valid (type, from_state, to_state) row
-3. Check that the caller's role is in required_role[]
+3. Check that the caller's role is in required_role[] (product-role gating happens here, not in RLS)
 4. Update workflow.current_state and workflow.updated_at
 5. If to_state is terminal, set workflow.completed_at
 6. Write a ledger_event (type: 'state_changed', payload: {from, to, reason})
-7. Compute hash chain: SHA-256(prev_hash + event_id + event_type + JSON.stringify(payload) + created_at)
+7. Compute hash chain: `SHA-256(prev_hash + event_id + event_type + canonicalJSON(payload) + created_at)` — see HASH CHAIN section
 8. Return the updated workflow
 
 If any check fails, return 403 with a reason. No partial transitions.
+
+"System" transitions (e.g. `CAPTURED → AUTO_VERIFIED`) are made by server code calling this
+same endpoint with the service-role key bypassing the role check.
 
 ### Seeded transitions
 
@@ -343,44 +422,86 @@ COMPLETED → CERTIFIED          (system — auto-generates certificate)
 
 ## HASH CHAIN IMPLEMENTATION
 
+The ledger chain is SHA-256 over a canonical (sorted-key) JSON serialization of the payload.
+**Do not use `JSON.stringify(payload)` directly** — its key order is insertion order, not
+canonical, so two semantically equal payloads can produce different hashes and silently break
+chain verification at export time.
+
 ```typescript
-// Edge Function: computeHash.ts
-import { createHash } from 'https://deno.land/std/hash/mod.ts';
+// lib/canonical.ts — byte-stable JSON serialization
+export function canonicalJSON(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return "[" + value.map(canonicalJSON).join(",") + "]";
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return (
+    "{" +
+    keys.map((k) => JSON.stringify(k) + ":" + canonicalJSON(obj[k])).join(",") +
+    "}"
+  );
+}
+```
 
-export function computeEventHash(
-  prevHash: string | null,
-  eventId: string,
-  eventType: string,
-  payload: object,
-  createdAt: string
-): string {
+```typescript
+// lib/ledger.ts — Node-side hash computation
+import crypto from "node:crypto";
+import { canonicalJSON } from "./canonical";
+
+export function computeEventHash(args: {
+  prevHash: string | null;
+  eventId: string;
+  eventType: string;
+  payload: unknown;
+  createdAt: string; // exact ISO string that will be written to the row
+}): string {
   const data = [
-    prevHash ?? 'GENESIS',
-    eventId,
-    eventType,
-    JSON.stringify(payload),
-    createdAt
-  ].join('|');
-
-  return createHash('sha256').update(data).toString();
+    args.prevHash ?? "GENESIS",
+    args.eventId,
+    args.eventType,
+    canonicalJSON(args.payload),
+    args.createdAt,
+  ].join("|");
+  return crypto.createHash("sha256").update(data).digest("hex");
 }
 
-// Called before every ledger insert:
+// Called before every ledger insert (inside /api/* routes):
 // 1. SELECT hash FROM ledger_events WHERE org_id = $1 ORDER BY created_at DESC LIMIT 1
-// 2. newHash = computeEventHash(prevHash, newEventId, ...)
+// 2. newHash = computeEventHash({prevHash, eventId, eventType, payload, createdAt})
 // 3. INSERT INTO ledger_events (..., prev_hash, hash) VALUES (..., prevHash, newHash)
+```
+
+### Browser-side file hashing
+
+For `media.sha256` (the hash of the uploaded file's bytes), use Web Crypto in the browser
+before upload so the client-visible hash matches what the server records:
+
+```typescript
+// lib/file-hash.ts — runs in the browser
+export async function sha256Hex(buf: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 ```
 
 ### Chain verification (export time)
 
-Before generating any export pack, the Edge Function walks the entire chain for that workflow and verifies every hash. If any hash breaks, the export is blocked and an alert fires. This is what makes the ledger tamper-evident.
+Before generating any export pack, the export endpoint walks the entire chain for that workflow
+and recomputes every hash using `canonicalJSON`. If any hash breaks, the export is blocked and an
+alert fires. This is what makes the ledger tamper-evident — and why canonical JSON is required,
+not optional.
 
 ---
 
 ## EXPORT GENERATOR
 
 ```
-POST /functions/v1/export
+POST /api/export
 Body: { workflow_id, pack_type }
 ```
 
@@ -413,24 +534,28 @@ Body: { workflow_id, pack_type }
 
 ---
 
-## API SURFACE (Edge Functions)
+## API SURFACE — Vercel Node routes at `/api/*`
+
+All routes are Next.js App Router handlers under `app/api/...`. "system" auth means the
+route is called server-to-server with the Supabase service-role key and bypasses user-role
+gating. All other routes expect a Supabase session cookie.
 
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
-| `/auth/signup` | POST | none | Create account + org |
-| `/auth/invite` | POST | admin | Invite user to org |
-| `/workflows` | GET | member | List workflows for org |
-| `/workflows` | POST | member | Create workflow |
-| `/workflows/:id` | GET | member | Get workflow detail |
-| `/transition` | POST | member | Trigger state transition |
-| `/events` | GET | member | List ledger events (paginated) |
-| `/events` | POST | system | Append event (called by other functions) |
-| `/media/upload` | POST | member | Upload file + compute hashes |
-| `/media/:id/verify` | POST | system | Run fraud checks on uploaded media |
-| `/export` | POST | admin | Generate export pack |
-| `/export/:id/download` | GET | member | Download generated pack |
-| `/challenge/issue` | POST | admin | Generate random capture challenge (Tasdiq) |
-| `/challenge/verify` | POST | system | Verify challenge code in captured frame (Tasdiq) |
+| `/api/auth/signup` | POST | none | Create account + org |
+| `/api/auth/invite` | POST | admin | Invite user to org |
+| `/api/workflows` | GET | member | List workflows for org |
+| `/api/workflows` | POST | member | Create workflow |
+| `/api/workflows/:id` | GET | member | Get workflow detail |
+| `/api/transition` | POST | member or system | Trigger state transition |
+| `/api/events` | GET | member | List ledger events (paginated) |
+| `/api/events` | POST | system | Append event (called by other routes) |
+| `/api/media/upload` | POST | member | Upload file + record hashes |
+| `/api/media/:id/verify` | POST | system | Run fraud checks on uploaded media |
+| `/api/export` | POST | admin | Generate export pack |
+| `/api/export/:id/download` | GET | member | Download generated pack |
+| `/api/challenge/issue` | POST | admin | Generate random capture challenge (Tasdiq) |
+| `/api/challenge/verify` | POST | system | Verify challenge code in captured frame (Tasdiq) |
 
 ---
 
@@ -478,8 +603,8 @@ When Saidislom finishes the core and starts the Butterfly vertical, he should:
 
 - Add ZERO new tables (only new rows in workflow_transitions + new event_type strings)
 - Add ZERO new RLS policies
-- Add ZERO new Edge Functions for core logic
-- Add ONLY: new pages in `(butterfly)/`, new components in `components/butterfly/`, new export templates
+- Add ZERO new routes under `app/api/core/*` (core business logic stays untouched)
+- Add ONLY: new pages in `(butterfly)/`, new components in `components/butterfly/`, new export templates, new vertical-specific routes under `app/api/butterfly/*`
 
 If he has to touch the core schema, the core API, or the RLS policies to ship Butterfly, I designed it wrong. Flag it and I'll fix the spec.
 
@@ -489,15 +614,24 @@ If he has to touch the core schema, the core API, or the RLS policies to ship Bu
 
 ### Supabase project setup
 1. Create project on supabase.com (paid plan — you already have this)
-2. Run the SQL above in the SQL editor (or via migrations)
-3. Deploy Edge Functions: `supabase functions deploy`
-4. Create Storage buckets: `evidence` (Tasdiq), `training` (Butterfly), `exports` (both)
-5. Set Storage policies: bucket-level RLS matching org_id
+2. Run the DDL from DATABASE SCHEMA in the SQL editor
+3. Run the RLS policies from ROW LEVEL SECURITY + STORAGE RLS
+4. Seed `workflow_transitions` with the Tasdiq transitions (Butterfly added later)
+5. Enable Realtime on the required tables:
+   ```sql
+   alter publication supabase_realtime add table public.ledger_events;
+   alter publication supabase_realtime add table public.workflows;
+   alter publication supabase_realtime add table public.media;
+   ```
+6. Storage buckets + policies are created by the SQL in STORAGE RLS above — no manual dashboard steps.
 
 ### Vercel setup
 1. Create project linked to Git repo
-2. Environment variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`
+2. Environment variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 3. Deploy with `vercel --prod`
+
+All server logic lives under `app/api/*` — there is nothing to deploy to Supabase beyond SQL.
+No `supabase functions deploy`. No Edge Functions.
 
 ### Domain routing
 - `tasdiq.uz` → Vercel project (Tasdiq routes)
@@ -526,18 +660,12 @@ If he has to touch the core schema, the core API, or the RLS policies to ship Bu
 
 ---
 
-## LOCKED DECISIONS (April 16, 2026)
-
-1. **Single Next.js app with route groups.** No Turborepo. No Nx. No monorepo tooling. One `app/` directory. Tasdiq and Butterfly are route groups `(tasdiq)/` and `(butterfly)/`. They share `components/core/` and `lib/` natively. Zero DevOps overhead.
-
-2. **Vercel API routes (Node.js) for all logic.** No Deno. No Supabase Edge Functions except DB triggers that must fire before returning. Saidislom stays in the Node ecosystem he knows. PDF generation, image hashing, fraud checks — all in Vercel Serverless Functions.
-
-3. **Supabase Realtime is non-negotiable for V1.** Inspector captures scan on phone → scan appears live on banker's dashboard with green checkmark. No F5. No polling. Hook Realtime into `ledger_events` and `workflows` tables. Worth the extra day.
-
 ---
 
-*This is the core. Everything above is product-agnostic. Everything below is vertical-specific and lives in separate specs.*
+*This is the core. Everything in this document is product-agnostic. Everything vertical-specific lives in separate specs (Tasdiq, Butterfly).*
 
-*The bar: when we add Butterfly, we add zero tables, zero policies, zero core functions. Only new UI and new event types.*
+*The bar: when we add Butterfly, we add zero tables, zero policies, zero core functions. Only new rows in `workflow_transitions`, new event-type strings, new UI under `app/(butterfly)/`.*
+
+*The locked decisions are at the top of this document — they override anything below. Re-read them before making architectural changes.*
 
 *Build this first. Then we never come back.*

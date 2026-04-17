@@ -1,19 +1,64 @@
-# Tasdiq Demo — full spec implementation
+# Tasdiq — real-auth build
 
-A complete, self-contained implementation of the Tasdiq construction-verification system from
-[CORE_PLATFORM_SPEC.md](CORE_PLATFORM_SPEC.md) and [TASDIQ_VERTICAL_SPEC.md](TASDIQ_VERTICAL_SPEC.md).
-
-- Real PWA capture — camera (`getUserMedia`), GPS (`watchPosition`), motion (`DeviceMotionEvent`)
-- All 5 fraud layers — geofence, tremor variance, **screen-replay**, dHash duplicate, challenge code
-- Tamper-evident SHA-256 hash-chain ledger with canonical JSON serialization + chain verification
-- Role-based auth and routing
-- Realtime dashboard updates via `BroadcastChannel` (cross-tab, behaves like Supabase Realtime)
-- Persistent state in `localStorage`
-- **No external services** — `npm install && npm run dev`, that's it
+Construction milestone verification for banks.
+Real Supabase Postgres + Auth + Storage + Realtime.
+Email-verified signup. Google Sign-in. Magic-link invitations.
 
 ---
 
-## Run
+## Required one-time Supabase dashboard setup
+
+Before the auth flows will work correctly, configure these in your Supabase project
+(https://supabase.com/dashboard → your project):
+
+### 1. Email confirmation (required)
+
+**Authentication → Providers → Email**
+- **Enable Email provider:** ON
+- **Confirm email:** ON ← critical; otherwise signups skip verification
+
+**Authentication → URL Configuration**
+- **Site URL:** `http://localhost:3000` (dev) or your production URL
+- **Redirect URLs:** add both
+  - `http://localhost:3000/auth/callback`
+  - `http://localhost:3000/accept-invite`
+  - (and your production equivalents)
+
+### 2. Google OAuth (required for "Sign in with Google")
+
+Create the Google OAuth credentials first:
+
+1. Go to https://console.cloud.google.com → APIs & Services → Credentials
+2. **Create credentials → OAuth client ID** → Application type: **Web application**
+3. **Authorized redirect URIs:** add the value Supabase shows in step 3 below —
+   it looks like `https://<your-project-ref>.supabase.co/auth/v1/callback`
+4. Copy the **Client ID** and **Client secret**
+
+Then in Supabase:
+
+1. **Authentication → Providers → Google**
+2. Toggle **Enable**
+3. Paste the Client ID and Client secret from Google
+4. Save
+
+You can test locally now — `Continue with Google` buttons on `/login` and `/signup` will work.
+
+### 3. (Optional) Custom email sender
+
+By default, Supabase sends confirmation emails from `noreply@mail.app.supabase.io`. For the NBU
+pilot you'll want emails from your own domain:
+
+1. Sign up for Resend (free tier: 100/day) — https://resend.com
+2. Verify your domain in Resend (add DNS records)
+3. In Supabase: **Project Settings → Authentication → SMTP Settings**
+4. Paste Resend SMTP host + user + password + "From" address
+5. Save — Supabase now sends all auth emails through your domain
+
+This is cosmetic but important: corporate inboxes frequently filter Supabase's default sender.
+
+---
+
+## Run locally
 
 ```bash
 npm install
@@ -24,111 +69,99 @@ Open http://localhost:3000.
 
 ---
 
-## Demo accounts
+## Auth flows
 
-All use password `demo123`. Login redirects by role.
+### Signing up (new organization)
 
-| Email                        | Role           | Lands on        |
-|------------------------------|----------------|-----------------|
-| `admin@tasdiq.uz`            | `admin`        | `/admin`        |
-| `inspector@tasdiq.uz`        | `inspector`    | `/capture`      |
-| `banker@tasdiq.uz`           | `bank_officer` | `/dashboard`    |
-| `supervisor@tasdiq.uz`       | `supervisor`   | `/dashboard`    |
+1. Go to `/signup`
+2. Fill in name, email, password, org name, slug (URL-safe identifier)
+3. Or click **Continue with Google** — skips the password step
+4. If email/password: we send a confirmation email. You see `/verify-email` ("Check your inbox").
+5. Click the link in your email → land on `/auth/callback` → org + admin profile created → redirected to `/admin`.
+6. If Google OAuth with a new email: Google auth → `/complete-signup` → fill in org info → redirected to `/admin`.
 
----
+**Emails that don't exist will never be able to confirm.** Invalid/fake emails are blocked at the confirmation step — no way around it.
 
-## Demo flow (NBU pitch, ~3 minutes)
+### Signing in
 
-1. Open [/dashboard](http://localhost:3000/dashboard) in one tab, log in as `banker@tasdiq.uz`.
-2. Open [/demo](http://localhost:3000/demo) in a second tab.
-3. Click **🚨 Simulate FRAUD capture** — dashboard updates instantly via realtime; Yashnobod flips to `FLAGGED`. Click the project: 5 layers, 5 red ❌, clear explanation of each failure.
-4. Click **Reset state** to clear, then **✅ Simulate REAL capture** — dashboard flips to `AUTO VERIFIED`, aggregate score 1.00.
-5. Click **Approve milestone** → state → `APPROVED`. Click **Generate tranche pack** → state → `EXPORTED`, ledger event written and chain-verified.
-6. Optional live demo: log in as `inspector@tasdiq.uz` on a phone, use [/capture](http://localhost:3000/capture) — real camera, real GPS, real motion sensors.
+1. Go to `/login`
+2. Enter email + password, OR click **Continue with Google**
+3. If email was never confirmed, we show a resend link inline
+4. On success, you're routed by role:
+   - `admin` → `/admin`
+   - `inspector` → `/capture`
+   - `bank_officer` / `supervisor` → `/dashboard`
+
+**Non-existent emails:** Supabase returns "Invalid login credentials" — identical to wrong password, so attackers can't enumerate accounts.
+
+### Inviting teammates
+
+1. As admin, go to `/team`
+2. Enter email + full name + role
+3. Teammate receives a magic-link email
+4. They click → `/auth/callback` → `/accept-invite` to set a password
+5. After setting password, they're routed to their role's home
 
 ---
 
 ## Architecture
 
-```
-/lib
-  types.ts        — shared domain types (Organization, Workflow, Media, LedgerEvent, ...)
-  seed.ts         — initial DB state (1 org, 4 users, 3 projects, seeded transitions)
-  ledger.ts       — canonical-JSON SHA-256 hash chain + chain verification
-  fraud.ts        — 5 pure fraud-detection functions + aggregate
-  realtime.ts     — Supabase-shaped channel API over BroadcastChannel
-  mock-db.ts      — fake Supabase client: from().select().eq(), auth, storage, realtime
-  simulate.ts     — REAL + FRAUD scenario generators used by /demo
-  hooks.ts        — React hooks: useSession, useRequireRole
+### Auth stack
 
-/components
-  ui.tsx          — Kpi, StateBadge, VerdictPill, FraudScoreBar, FraudCheckList
+- `@supabase/ssr` for cookie-based sessions
+- `middleware.ts` refreshes tokens on every request + gates protected routes
+- `/auth/callback` (server route) is the single landing point for **every** auth token exchange — email confirmation, magic-link invites, and Google OAuth all come through it
 
-/app
-  page.tsx                         — landing
-  login/page.tsx                   — email/password + role-based redirect
-  capture/page.tsx                 — inspector PWA, 4 screens
-  dashboard/page.tsx               — bank officer KPIs + project list + realtime
-  dashboard/project/[id]/page.tsx  — 5-layer fraud detail + approve/reject + ledger + hash-chain status
-  demo/page.tsx                    — control panel: REAL / FRAUD / Reset
-  admin/page.tsx                   — users, workflows, recent ledger events
-```
+### Tables
 
----
+- `organizations` — tenants (one per bank)
+- `users` — profile rows, keyed by `auth.users.id`
+- `workflows` — construction projects
+- `workflow_transitions` — state machine (seeded: 10 Tasdiq transitions)
+- `ledger_events` — append-only, SHA-256 hash chain
+- `media` — evidence photos, metadata includes 5-layer fraud result
+- `export_packs` — tranche packs (server-generated)
 
-## Fraud pipeline — 5 layers
+### Routes
 
-| # | Layer | Weight | Pure function |
-|---|---|---|---|
-| 1 | GPS geofence | 0.25 | `checkGeofence(gps, project)` — haversine vs `geofence_radius_meters` |
-| 2 | Human tremor | 0.20 | `checkMotion(variance)` — accel magnitude variance in [0.001, 1.0] |
-| 3 | **Screen replay** | 0.25 | `checkScreenReplay(motionVar, lightingVar)` — phone flat + uniform frame ⇒ fraud |
-| 4 | Photo uniqueness | 0.15 | `checkDuplicate(phash, known)` — dHash + Hamming distance ≥ 10 |
-| 5 | Challenge code | 0.15 | `checkChallenge(submitted, expected, issuedAt, capturedAt)` — match + ≤30 s age |
+**Pages:**
+- `/` · `/login` · `/signup` · `/verify-email` · `/accept-invite` · `/complete-signup`
+- `/admin` · `/team` · `/dashboard` · `/dashboard/project/[id]`
+- `/capture` (inspector PWA) · `/demo` (NBU pitch buttons)
 
-Aggregate = Σ (score × weight). Verdict: `≥ 0.7 ⇒ VERIFIED`, else `FLAGGED`.
+**API:**
+- `/api/auth/complete-signup` · `/api/auth/invite` · `/api/auth/accept-invite`
+- `/api/workflows` (create project)
+- `/api/transition` · `/api/events/append` (both write through hash chain with service role)
+- `/api/demo/simulate-real` · `/api/demo/simulate-fraud`
 
-### Layer 3 — the "screen replay killer"
+**OAuth/email callback:**
+- `/auth/callback` — exchanges code → creates org/profile if needed → routes by role
 
-The headline feature: if the phone is nearly stationary (motion variance < 0.01) **and** the captured frame shows uniform lighting (luma variance < 0.02), the camera is looking at a screen, not a real scene. Both signals are computed on device: motion variance from the accelerometer samples collected during the 5-second recording; lighting variance from the still frame's luma channel.
+### 5-layer fraud pipeline ([lib/fraud.ts](lib/fraud.ts))
 
----
+| # | Layer | Weight |
+|---|---|---|
+| 1 | GPS geofence | 0.25 |
+| 2 | Human tremor (accelerometer variance) | 0.20 |
+| 3 | Screen-replay detection (sensor-camera consistency) | 0.25 |
+| 4 | Photo uniqueness (dHash + Hamming) | 0.15 |
+| 5 | Challenge code + expiry | 0.15 |
 
-## Mock Supabase API
+Aggregate ≥ 0.7 → `AUTO_VERIFIED`, else `FLAGGED`.
 
-The `supabase` export from [lib/mock-db.ts](lib/mock-db.ts) matches the surface of `@supabase/supabase-js` closely enough that swapping to real Supabase is a one-line change:
+### Hash chain ([lib/ledger.ts](lib/ledger.ts))
 
-```ts
-// Swap the import — everything else works unchanged
-// import { supabase } from "@/lib/mock-db";
-import { createClient } from "@supabase/supabase-js";
-export const supabase = createClient(URL, KEY);
-```
-
-Supported:
-
-- `supabase.from<Row>(table).select().eq(col, val).order(col, {ascending}).limit(n).single() / .maybeSingle()`
-- `supabase.from(table).insert(row).select().single()`
-- `supabase.from(table).update(patch).eq(col, val).select()`
-- `supabase.from(table).delete().eq(col, val)`
-- `supabase.auth.signInWithPassword({email, password})`, `.signOut()`, `.getSession()`, `.onAuthStateChange(cb)`
-- `supabase.storage.from(bucket).upload(path, blobOrDataUrl)`, `.getPublicUrl(path)`, `.download(path)`
-- `supabase.channel(topic).on("postgres_changes", {event, table, filter}, cb).subscribe()`
-
-Ledger inserts automatically flow through `computeEventHash` — `prev_hash` and `hash` are always correct. [`verifyChain()`](lib/ledger.ts) walks a workflow's events and confirms every hash and every link; used by the project-detail page and the export action.
+- Canonical JSON (sorted keys, byte-stable)
+- SHA-256 via Node `crypto` server-side, Web Crypto browser-side
+- Every ledger event links `prev_hash` → `hash`
+- `verifyChain()` walks a workflow's events and produces an anchor hash
+- Project detail page displays chain validity inline
 
 ---
 
-## Persistence + realtime
+## Known limits
 
-- All state lives in `localStorage` under `tasdiq-demo-db-v1` plus a session under `tasdiq-demo-session-v1`. Survives page reloads.
-- Cross-tab realtime via `BroadcastChannel("tasdiq-demo-bus")`. Mutations from any tab are received by every open tab's subscriptions.
-- **Reset state** (button on `/demo`) wipes `localStorage` and re-seeds the DB.
-
----
-
-## Known demo constraints
-
-- iOS Safari needs a user gesture to request `DeviceMotionEvent.requestPermission()`. The capture screen shows "Tap to enable motion sensors" when needed.
-- `getUserMedia` requires HTTPS (or `localhost`). Testing on a phone over LAN requires either a tunnel (ngrok) or an HTTPS dev cert.
-- This is a single-browser demo. Multi-browser sync would require a backend.
+- iOS Safari requires a user tap to unlock `DeviceMotionEvent.requestPermission()`. Capture page shows "Tap to enable motion sensors" when needed.
+- `getUserMedia` requires HTTPS (or `localhost`). Testing on a phone over LAN needs a tunnel (e.g. ngrok) or an HTTPS dev cert.
+- Custom SMTP is not configured by default. Confirmation emails come from Supabase's generic sender until you set up Resend (or equivalent) — see step 3 of one-time setup above.

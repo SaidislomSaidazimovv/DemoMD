@@ -1,0 +1,99 @@
+"use client";
+
+// Client-side helpers that wrap fetch() calls to our /api routes.
+// Keeps page components free of fetch boilerplate and consolidates error handling.
+
+async function postJson<T = any>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    credentials: "include",
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new Error(data?.error ?? `Request failed (${r.status})`);
+  }
+  return data as T;
+}
+
+// -------------------------------------------------------------
+// Auth
+// -------------------------------------------------------------
+
+// NOTE: /signup is done directly via `supabase.auth.signUp()` in the page.
+// This goes through Supabase's email-confirmation path and cannot be bypassed by the server.
+
+export async function completeSignup(input: { fullName: string; orgName: string; orgSlug: string }) {
+  return postJson<{ ok: true; orgId: string }>("/api/auth/complete-signup", input);
+}
+
+export interface InviteInput {
+  email: string;
+  fullName: string;
+  role: "admin" | "bank_officer" | "inspector" | "supervisor";
+}
+export async function inviteUser(input: InviteInput) {
+  return postJson<{ ok: true; userId: string }>("/api/auth/invite", input);
+}
+
+// -------------------------------------------------------------
+// Workflows / transitions / events
+// -------------------------------------------------------------
+
+export async function createWorkflow(input: {
+  type: "tranche_verification";
+  reference_id: string;
+  reference_label: string;
+  meta: Record<string, unknown>;
+}) {
+  return postJson<{ ok: true; workflow: any }>("/api/workflows", input);
+}
+
+export async function transitionWorkflow(input: {
+  workflow_id: string;
+  to_state: string;
+  reason?: string;
+  system?: boolean;
+}) {
+  return postJson<{ ok: true; workflow: any }>("/api/transition", input);
+}
+
+export async function appendLedgerEvent(input: {
+  workflow_id: string | null;
+  event_type: string;
+  payload: Record<string, unknown>;
+  system?: boolean;
+}) {
+  return postJson<{ ok: true; event: any }>("/api/events/append", input);
+}
+
+// -------------------------------------------------------------
+// Export (tranche pack)
+// -------------------------------------------------------------
+
+export async function generateTranchePack(input: { workflow_id: string }) {
+  return postJson<{ ok: true; pack: any; downloadUrl: string | null }>(
+    "/api/export",
+    input
+  );
+}
+
+export async function downloadPack(packId: string): Promise<string> {
+  const r = await fetch(`/api/export/${packId}/download`, { credentials: "include" });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data?.error ?? "download link failed");
+  return data.downloadUrl as string;
+}
+
+// -------------------------------------------------------------
+// Demo helpers — simulate REAL / FRAUD captures
+// -------------------------------------------------------------
+
+export async function simulateReal(workflowId: string) {
+  return postJson<{ ok: true; media: any; workflow: any }>("/api/demo/simulate-real", { workflowId });
+}
+
+export async function simulateFraud(workflowId: string) {
+  return postJson<{ ok: true; media: any; workflow: any }>("/api/demo/simulate-fraud", { workflowId });
+}

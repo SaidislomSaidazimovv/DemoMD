@@ -1,57 +1,86 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 
-export default function Home() {
+const ROLE_ROUTE: Record<string, string> = {
+  admin: "/admin",
+  inspector: "/capture",
+  bank_officer: "/dashboard",
+  supervisor: "/dashboard",
+};
+
+export default async function Home() {
+  const supabase = createClient();
+
+  // getSession() is cookie-local (no network). Fast.
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  // Signed-in users skip the marketing page.
+  if (session?.user) {
+    const { data: profile } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", session.user.id)
+      .maybeSingle();
+    redirect(profile ? (ROLE_ROUTE[profile.role] ?? "/admin") : "/complete-signup");
+  }
+
   return (
     <main className="min-h-screen flex items-center justify-center p-8">
       <div className="max-w-2xl w-full space-y-8">
         <div>
-          <h1 className="text-4xl font-bold">Tasdiq Demo</h1>
+          <h1 className="text-4xl font-bold">Tasdiq</h1>
           <p className="text-slate-400 mt-2">
-            Construction milestone verification for banks — 5-layer fraud detection, tamper-evident
-            hash-chain ledger, realtime dashboard. Self-contained in-memory demo.
+            Construction milestone verification for banks — 5-layer fraud detection,
+            tamper-evident ledger, realtime dashboard.
           </p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <LinkCard href="/login" title="Login →" subtitle="admin / inspector / banker · demo123" />
-          <LinkCard href="/demo" title="Demo Control →" subtitle="Simulate REAL or FRAUD captures" />
-          <LinkCard href="/dashboard" title="Bank Dashboard →" subtitle="KPIs, project detail, realtime" />
-          <LinkCard href="/capture" title="Inspector PWA →" subtitle="Camera + GPS + sensors" />
+          <Link
+            href="/signup"
+            className="rounded-lg border border-emerald-600/40 bg-emerald-900/20 hover:bg-emerald-900/30 p-5 transition"
+          >
+            <div className="text-lg font-semibold text-emerald-200">Create organization →</div>
+            <div className="text-xs text-emerald-200/70 mt-1">
+              New bank? Sign up here. You become the admin.
+            </div>
+          </Link>
+          <Link
+            href="/login"
+            className="rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 p-5 transition"
+          >
+            <div className="text-lg font-semibold">Sign in →</div>
+            <div className="text-xs text-slate-400 mt-1">
+              Admin, bank officer, supervisor, inspector.
+            </div>
+          </Link>
         </div>
 
         <div className="rounded border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-400 space-y-1.5">
-          <p className="text-slate-300 font-semibold">How the demo flows:</p>
+          <p className="text-slate-300 font-semibold">How onboarding works:</p>
           <p>
-            1. Log in with{" "}
-            <span className="font-mono text-slate-200">banker@tasdiq.uz / demo123</span> — routes
-            you to <span className="font-mono">/dashboard</span>.
+            <strong className="text-slate-200">1.</strong> A bank admin creates the organization
+            on{" "}
+            <Link href="/signup" className="underline">
+              /signup
+            </Link>
+            .
           </p>
           <p>
-            2. In another tab, open <span className="font-mono">/demo</span> and click{" "}
-            <span className="text-rose-300">🚨 FRAUD</span> or{" "}
-            <span className="text-emerald-300">✅ REAL</span> — the dashboard updates instantly via
-            realtime.
+            <strong className="text-slate-200">2.</strong> From{" "}
+            <span className="font-mono">/team</span>, the admin invites bank officers and
+            inspectors by email. Each gets a magic-link invitation.
           </p>
           <p>
-            3. Or log in as{" "}
-            <span className="font-mono text-slate-200">inspector@tasdiq.uz / demo123</span> and use{" "}
-            <span className="font-mono">/capture</span> on a phone for the real camera + sensor
-            capture flow.
+            <strong className="text-slate-200">3.</strong> Inspectors capture evidence on their
+            phones at <span className="font-mono">/capture</span>. Bank officers see everything
+            live on <span className="font-mono">/dashboard</span>.
           </p>
         </div>
       </div>
     </main>
-  );
-}
-
-function LinkCard({ href, title, subtitle }: { href: string; title: string; subtitle: string }) {
-  return (
-    <Link
-      href={href}
-      className="rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 p-5 text-center transition"
-    >
-      <div className="text-lg font-semibold">{title}</div>
-      <div className="text-xs text-slate-400 mt-1">{subtitle}</div>
-    </Link>
   );
 }

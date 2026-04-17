@@ -19,6 +19,7 @@ export interface User {
   full_name: string;
   role: UserRole;
   created_at: string;
+  accepted_at: string | null; // null = invited but not yet activated
 }
 
 export interface AuthUser {
