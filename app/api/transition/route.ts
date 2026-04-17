@@ -92,6 +92,25 @@ export async function POST(req: Request) {
     payload: { from: wf.current_state, to: to_state, reason: reason ?? null, system: !!useSystemPath },
   });
 
+  // Spec event `tranche_released` — fires when a bank confirms a tranche
+  // disbursement on a tranche_verification workflow. Atomic with the state
+  // change because it's the next awaited write in the same request.
+  if (wf.type === "tranche_verification" && to_state === "BANK_ACCEPTED") {
+    await appendEventWithChain(sb, {
+      org_id: wf.org_id,
+      workflow_id: wf.id,
+      event_type: "tranche_released",
+      actor_id: useSystemPath ? null : profile.id,
+      payload: {
+        tranche: wf.meta?.current_tranche ?? null,
+        total_tranches: wf.meta?.total_tranches ?? null,
+        loan_amount: wf.meta?.loan_amount ?? null,
+        loan_currency: wf.meta?.loan_currency ?? null,
+        reason: reason ?? "Bank confirmed tranche release",
+      },
+    });
+  }
+
   return NextResponse.json({ ok: true, workflow: updated });
 }
 

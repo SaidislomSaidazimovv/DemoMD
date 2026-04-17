@@ -12,17 +12,18 @@ const ROLE_ROUTE: Record<string, string> = {
 export default async function Home() {
   const supabase = createClient();
 
-  // getSession() is cookie-local (no network). Fast.
+  // getUser() verifies the token with Supabase Auth. Safer for server-side
+  // auth decisions than getSession(), which decodes cookies locally.
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
   // Signed-in users skip the marketing page.
-  if (session?.user) {
+  if (user) {
     const { data: profile } = await supabase
       .from("users")
       .select("role")
-      .eq("id", session.user.id)
+      .eq("id", user.id)
       .maybeSingle();
     redirect(profile ? (ROLE_ROUTE[profile.role] ?? "/admin") : "/complete-signup");
   }

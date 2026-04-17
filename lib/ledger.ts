@@ -47,8 +47,15 @@ export async function computeEventHash(args: {
   return sha256Hex(data);
 }
 
-// Walks the chain for a workflow and verifies every hash.
-// Used by the tranche-pack export to produce the `hash_anchor.txt` value.
+// Walks the org's ledger chain and verifies every hash.
+//
+// Implementation note on timestamps: inserts use `new Date().toISOString()`,
+// which always emits `YYYY-MM-DDTHH:mm:ss.sssZ`. Postgres stores the instant
+// correctly, but PostgREST may return the same instant formatted as
+// `YYYY-MM-DDTHH:mm:ss.sss+00:00` or with microsecond padding. These represent
+// the same moment but are different strings — hashing them directly would
+// cause every verification to fail. Re-normalize via `new Date(s).toISOString()`
+// so we always hash against the same canonical string we wrote.
 export async function verifyChain(events: LedgerEvent[]): Promise<{
   valid: boolean;
   brokenAt: string | null;
@@ -58,12 +65,13 @@ export async function verifyChain(events: LedgerEvent[]): Promise<{
   const sorted = events.slice().sort((a, b) => a.created_at.localeCompare(b.created_at));
   let prev: string | null = null;
   for (const ev of sorted) {
+    const normalizedCreatedAt = new Date(ev.created_at).toISOString();
     const expected = await computeEventHash({
       prevHash: prev,
       eventId: ev.id,
       eventType: ev.event_type,
       payload: ev.payload,
-      createdAt: ev.created_at,
+      createdAt: normalizedCreatedAt,
     });
     if (ev.hash !== expected || ev.prev_hash !== prev) {
       return { valid: false, brokenAt: ev.id, anchor: null };

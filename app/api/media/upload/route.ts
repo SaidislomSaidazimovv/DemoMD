@@ -35,6 +35,11 @@ interface UploadPayload {
   captured_at: string;
   phash: string;
   device_info: Media["meta"]["device_info"];
+  // Optional video pointer — client uploads the video directly to Storage
+  // (bypassing Vercel request size limits) and sends us the resulting path.
+  video_storage_path?: string | null;
+  video_mime_type?: string | null;
+  video_bytes?: number | null;
 }
 
 export async function POST(req: Request) {
@@ -148,11 +153,18 @@ export async function POST(req: Request) {
     fraud_result: fraud,
     source: "real",
   };
-  // Extend meta with gyro fields without breaking the Media["meta"] shape.
-  const metaWithGyro = {
+  // Extend meta with gyro + optional video-pointer fields.
+  const metaWithExtras: Media["meta"] = {
     ...mediaMeta,
     gyro_samples_count: payload.gyro_samples?.length ?? 0,
     gyro_variance: gyroVariance,
+    ...(payload.video_storage_path
+      ? {
+          video_storage_path: payload.video_storage_path,
+          video_mime_type: payload.video_mime_type ?? undefined,
+          video_bytes: payload.video_bytes ?? undefined,
+        }
+      : {}),
   };
 
   const { data: mediaRow, error: mediaErr } = await admin
@@ -165,7 +177,7 @@ export async function POST(req: Request) {
       sha256,
       phash: payload.phash,
       uploaded_by: profile.id,
-      meta: metaWithGyro,
+      meta: metaWithExtras,
     })
     .select()
     .single();

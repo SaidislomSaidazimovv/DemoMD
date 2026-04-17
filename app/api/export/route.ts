@@ -60,7 +60,14 @@ export async function POST(req: Request) {
     .maybeSingle();
   const org = (orgRow as Organization) ?? null;
 
-  const [{ data: mediaRows }, { data: eventRows }] = await Promise.all([
+  // The hash chain is ORG-wide. We need every event in the org (not just this
+  // workflow's) to verify the chain end-to-end. The exported audit log also
+  // includes the full org chain so the ZIP is self-verifiable.
+  const [
+    { data: mediaRows },
+    { data: workflowEventRows },
+    { data: orgEventRows },
+  ] = await Promise.all([
     admin
       .from("media")
       .select("*")
@@ -71,12 +78,18 @@ export async function POST(req: Request) {
       .select("*")
       .eq("workflow_id", workflow.id)
       .order("created_at", { ascending: true }),
+    admin
+      .from("ledger_events")
+      .select("*")
+      .eq("org_id", workflow.org_id)
+      .order("created_at", { ascending: true }),
   ]);
   const media = (mediaRows as Media[]) ?? [];
-  const events = (eventRows as LedgerEvent[]) ?? [];
+  const workflowEvents = (workflowEventRows as LedgerEvent[]) ?? [];
+  const orgEvents = (orgEventRows as LedgerEvent[]) ?? [];
 
-  // 1. Verify the hash chain before generating anything.
-  const verification = await verifyChain(events);
+  // 1. Verify the hash chain over the org's full ledger before exporting.
+  const verification = await verifyChain(orgEvents);
   if (!verification.valid) {
     return NextResponse.json(
       {
@@ -117,9 +130,17 @@ export async function POST(req: Request) {
       gps: m.meta.gps,
       inside_geofence: m.meta.inside_geofence,
       fraud_result: m.meta.fraud_result,
+      video: m.meta.video_storage_path
+        ? {
+            storage_path: m.meta.video_storage_path,
+            mime_type: m.meta.video_mime_type ?? null,
+            bytes: m.meta.video_bytes ?? null,
+          }
+        : null,
     })),
     chain: {
-      event_count: events.length,
+      workflow_event_count: workflowEvents.length,
+      org_event_count: orgEvents.length,
       anchor: verification.anchor,
       valid: true,
     },
@@ -130,12 +151,13 @@ export async function POST(req: Request) {
     .update(manifestJson)
     .digest("hex");
 
-  // 3. Generate the PDF.
+  // 3. Generate the PDF. The PDF focuses on this workflow, so pass the
+  // workflow-scoped events — the full org chain lives in the audit log.
   const pdfBuffer = await generateActPdf({
     org,
     workflow,
     media,
-    events,
+    events: workflowEvents,
     chain: verification,
     manifestHash,
     generatedBy: {
@@ -146,32 +168,63 @@ export async function POST(req: Request) {
   });
 
   // 4. Download each media file from Storage (in parallel).
+  // Each media row has a still-frame `storage_path` and, optionally, a
+  // `video_storage_path` for the 15-second webm/mp4 companion video.
   type MediaFile = { name: string; buf: Buffer };
   const mediaFiles: MediaFile[] = [];
   await Promise.all(
-    media.map(async (m) => {
-      try {
-        const { data: blob } = await admin.storage
-          .from("evidence")
-          .download(m.storage_path);
-        if (!blob) return;
-        const buf = Buffer.from(await blob.arrayBuffer());
-        const extFromPath = m.storage_path.split(".").pop() ?? "bin";
-        const ext = extFromPath.length <= 4 ? extFromPath : "bin";
-        mediaFiles.push({ name: `${m.id}.${ext}`, buf });
-      } catch {
-        // swallow — missing media shouldn't block the pack
+    media.flatMap((m) => {
+      const jobs: Array<Promise<void>> = [
+        (async () => {
+          try {
+            const { data: blob } = await admin.storage
+              .from("evidence")
+              .download(m.storage_path);
+            if (!blob) return;
+            const buf = Buffer.from(await blob.arrayBuffer());
+            const extFromPath = m.storage_path.split(".").pop() ?? "bin";
+            const ext = extFromPath.length <= 4 ? extFromPath : "bin";
+            mediaFiles.push({ name: `${m.id}.${ext}`, buf });
+          } catch {
+            // swallow — missing media shouldn't block the pack
+          }
+        })(),
+      ];
+      if (m.meta.video_storage_path) {
+        jobs.push(
+          (async () => {
+            try {
+              const { data: blob } = await admin.storage
+                .from("evidence")
+                .download(m.meta.video_storage_path as string);
+              if (!blob) return;
+              const buf = Buffer.from(await blob.arrayBuffer());
+              const ext = m.meta.video_mime_type?.includes("mp4") ? "mp4" : "webm";
+              mediaFiles.push({ name: `${m.id}-video.${ext}`, buf });
+            } catch {
+              // video optional
+            }
+          })()
+        );
       }
+      return jobs;
     })
   );
 
   // 5. Build the ZIP.
-  const ledgerJsonl = events.map((e) => JSON.stringify(e)).join("\n");
+  // Include the full org chain so the pack is self-verifiable — anyone who
+  // unzips can re-walk ledger_events.jsonl and confirm the anchor matches.
+  // workflow_events.jsonl is a convenience subset for this specific project.
+  const orgLedgerJsonl = orgEvents.map((e) => JSON.stringify(e)).join("\n");
+  const workflowLedgerJsonl = workflowEvents
+    .map((e) => JSON.stringify(e))
+    .join("\n");
   const hashAnchor = verification.anchor ?? "GENESIS";
   const zipFiles: Array<{ name: string; data: Buffer | string }> = [
     { name: "01_act/acceptance_act.pdf", data: pdfBuffer },
     { name: "02_manifest/evidence_manifest.json", data: manifestJson },
-    { name: "05_audit/ledger_events.jsonl", data: ledgerJsonl },
+    { name: "05_audit/ledger_events.jsonl", data: orgLedgerJsonl },
+    { name: "05_audit/workflow_events.jsonl", data: workflowLedgerJsonl },
     { name: "05_audit/hash_anchor.txt", data: hashAnchor },
   ];
   for (const f of mediaFiles) {

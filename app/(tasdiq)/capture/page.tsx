@@ -27,6 +27,9 @@ interface CapturePayload {
   capturedAt: Date;
   challengeIssuedAt: Date;
   deviceInfo: Media["meta"]["device_info"];
+  // Optional video artifact — present when MediaRecorder succeeded.
+  videoBlob: Blob | null;
+  videoMimeType: string | null;
 }
 
 type ResultView = FraudResult & { mediaId: string };
@@ -268,6 +271,8 @@ function CaptureScreen({
   const gyroRef = useRef<number[]>([]);
   const motionHandlerRef = useRef<((e: DeviceMotionEvent) => void) | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const videoChunksRef = useRef<Blob[]>([]);
 
   const [gps, setGps] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
@@ -393,9 +398,42 @@ function CaptureScreen({
     if (!videoRef.current) return;
     motionRef.current = [];
     gyroRef.current = [];
+    videoChunksRef.current = [];
     setRecording(true);
     setRecordCountdown(RECORD_SECONDS);
 
+    // Start MediaRecorder on the same stream the <video> element is showing.
+    // If the browser can't record (rare — older iOS Safari), we still proceed
+    // with still-frame capture. Video is additive, not required.
+    let chosenMime: string | null = null;
+    const stream = streamRef.current;
+    if (stream && typeof MediaRecorder !== "undefined") {
+      for (const candidate of [
+        "video/webm;codecs=vp9",
+        "video/webm;codecs=vp8",
+        "video/webm",
+        "video/mp4",
+      ]) {
+        if (MediaRecorder.isTypeSupported(candidate)) {
+          chosenMime = candidate;
+          break;
+        }
+      }
+      if (chosenMime) {
+        try {
+          const recorder = new MediaRecorder(stream, { mimeType: chosenMime });
+          recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) videoChunksRef.current.push(e.data);
+          };
+          recorder.start(1000); // emit a chunk every second — safer for long recordings
+          mediaRecorderRef.current = recorder;
+        } catch {
+          mediaRecorderRef.current = null;
+        }
+      }
+    }
+
+    // Sensor + countdown loop for exactly RECORD_SECONDS.
     const start = Date.now();
     const iv = setInterval(() => {
       const elapsed = (Date.now() - start) / 1000;
@@ -404,6 +442,25 @@ function CaptureScreen({
     await new Promise((r) => setTimeout(r, RECORD_SECONDS * 1000));
     clearInterval(iv);
 
+    // Stop the recorder and wait for the final chunk.
+    let videoBlob: Blob | null = null;
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state === "recording") {
+      await new Promise<void>((res) => {
+        recorder.onstop = () => res();
+        try {
+          recorder.stop();
+        } catch {
+          res();
+        }
+      });
+      if (videoChunksRef.current.length > 0 && chosenMime) {
+        videoBlob = new Blob(videoChunksRef.current, { type: chosenMime });
+      }
+    }
+    mediaRecorderRef.current = null;
+
+    // Still-frame capture — feeds the fraud pipeline (dHash + lighting variance).
     const video = videoRef.current;
     const canvas = canvasRef.current ?? document.createElement("canvas");
     canvas.width = video.videoWidth || 640;
@@ -446,6 +503,8 @@ function CaptureScreen({
         platform: navigator.platform,
         screen: { width: window.screen.width, height: window.screen.height },
       },
+      videoBlob,
+      videoMimeType: chosenMime,
     });
   }
 
@@ -559,11 +618,53 @@ function UploadScreen({
     setBusy(true);
     setError(null);
     try {
-      // POST to the server-side fraud pipeline. The server:
+      // Step 1 — if we have a video, upload it to Supabase Storage directly
+      // from the browser. Bypasses the Vercel request-body limit (4.5 MB),
+      // which matters because a 15s webm is 3-8 MB. Video is additive —
+      // failure here doesn't block the still-frame fraud pipeline.
+      let videoStoragePath: string | null = null;
+      let videoBytes: number | null = null;
+      if (capture.videoBlob && capture.videoMimeType) {
+        try {
+          const supabase = createClient();
+          const ext = capture.videoMimeType.includes("mp4") ? "mp4" : "webm";
+          // Resolve org id via session — RLS requires the org_id prefix on the path.
+          const { data: userRes } = await supabase.auth.getUser();
+          const uid = userRes.user?.id;
+          if (uid) {
+            const { data: profile } = await supabase
+              .from("users")
+              .select("org_id")
+              .eq("id", uid)
+              .maybeSingle();
+            const orgId = (profile as { org_id?: string } | null)?.org_id;
+            if (orgId) {
+              const path = `${orgId}/${project.id}/${Date.now()}-video.${ext}`;
+              const { error: upErr } = await supabase.storage
+                .from("evidence")
+                .upload(path, capture.videoBlob, {
+                  contentType: capture.videoMimeType,
+                  upsert: false,
+                });
+              if (!upErr) {
+                videoStoragePath = path;
+                videoBytes = capture.videoBlob.size;
+              } else {
+                console.warn("video upload failed:", upErr.message);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("video upload error:", (e as Error).message);
+        }
+      }
+
+      // Step 2 — POST the still frame + sensor data + optional video pointer
+      // to the server-side fraud pipeline. The server:
       //   - computes the canonical file SHA-256 from the bytes
       //   - re-runs all 5 fraud checks (including duplicate lookup)
-      //   - uploads to Storage with the service role
-      //   - writes media_uploaded + evidence_captured + (optionally fraud_detected) events
+      //   - uploads the photo to Storage with the service role
+      //   - writes media_uploaded + evidence_captured (+ fraud_detected) events
       //   - transitions the workflow to AUTO_VERIFIED or FLAGGED
       const form = new FormData();
       form.append("file", capture.photoBlob, "capture.jpg");
@@ -579,6 +680,9 @@ function UploadScreen({
           captured_at: capture.capturedAt.toISOString(),
           phash: capture.photoHash,
           device_info: capture.deviceInfo,
+          video_storage_path: videoStoragePath,
+          video_mime_type: capture.videoMimeType,
+          video_bytes: videoBytes,
         })
       );
 

@@ -125,7 +125,7 @@ export interface MediaMeta {
   motion_variance: number;
   lighting_variance: number;
   sensor_camera_correlation: number;
-  data_url?: string; // base64 thumbnail — demo uses this in place of Supabase Storage
+  data_url?: string; // base64 thumbnail — for synthetic demo captures
   thumbnail_emoji?: string;
   device_info: {
     user_agent: string;
@@ -134,6 +134,12 @@ export interface MediaMeta {
   };
   fraud_result: FraudResult;
   source: "real" | "fraud" | "seed";
+  // Optional extensions written by the real capture pipeline:
+  gyro_samples_count?: number;
+  gyro_variance?: number;
+  video_storage_path?: string;
+  video_mime_type?: string;
+  video_bytes?: number;
 }
 
 export interface FraudCheck {

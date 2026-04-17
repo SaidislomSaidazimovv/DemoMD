@@ -24,20 +24,31 @@ export default function ProjectDetailPage() {
   const [anchor, setAnchor] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rejectFormOpen, setRejectFormOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
   const { toasts, push: pushToast } = useToasts();
 
   async function refresh() {
     const supabase = createClient();
-    const [{ data: wf }, { data: ms }, { data: evs }] = await Promise.all([
+    // Note: the hash chain is ORG-wide (every event's prev_hash points to the
+    // previous event in the entire org, not just this workflow). So verification
+    // must walk the full org chain. RLS keeps the query scoped to the caller's
+    // org automatically. The UI timeline still shows only this workflow's events.
+    const [
+      { data: wf },
+      { data: ms },
+      { data: workflowEvs },
+      { data: orgEvs },
+    ] = await Promise.all([
       supabase.from("workflows").select("*").eq("id", id).maybeSingle(),
       supabase.from("media").select("*").eq("workflow_id", id),
       supabase.from("ledger_events").select("*").eq("workflow_id", id),
+      supabase.from("ledger_events").select("*"),
     ]);
     setWorkflow((wf as Workflow) ?? null);
     setMedia((ms as Media[]) ?? []);
-    const list = (evs as LedgerEvent[]) ?? [];
-    setEvents(list);
-    const verification = await verifyChain(list);
+    setEvents((workflowEvs as LedgerEvent[]) ?? []);
+    const verification = await verifyChain((orgEvs as LedgerEvent[]) ?? []);
     setChainValid(verification.valid);
     setAnchor(verification.anchor);
   }
@@ -115,6 +126,35 @@ export default function ProjectDetailPage() {
     }
   }
 
+  // Final lifecycle step: the bank confirms (or refuses) tranche release.
+  // Transitions EXPORTED → BANK_ACCEPTED | BANK_REJECTED. On accept, the
+  // server also emits a `tranche_released` ledger event (done in /api/transition).
+  async function bankAct(kind: "accept" | "reject") {
+    if (!workflow) return;
+    if (kind === "reject" && !rejectReason.trim()) {
+      setError("A rejection reason is required.");
+      return;
+    }
+    setBusy(kind === "accept" ? "bank_accept" : "bank_reject");
+    setError(null);
+    try {
+      await transitionWorkflow({
+        workflow_id: workflow.id,
+        to_state: kind === "accept" ? "BANK_ACCEPTED" : "BANK_REJECTED",
+        reason:
+          kind === "accept"
+            ? "Bank confirmed tranche release"
+            : rejectReason.trim(),
+      });
+      setRejectFormOpen(false);
+      setRejectReason("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (loading || !session) {
     return <main className="min-h-screen p-10 text-slate-500">Loading…</main>;
   }
@@ -134,6 +174,8 @@ export default function ProjectDetailPage() {
   const canApprove = ["AUTO_VERIFIED", "FLAGGED", "CAPTURED"].includes(workflow.current_state);
   const canReject = ["AUTO_VERIFIED", "FLAGGED", "CAPTURED"].includes(workflow.current_state);
   const canExport = workflow.current_state === "APPROVED";
+  const canBankAccept = workflow.current_state === "EXPORTED";
+  const canBankReject = workflow.current_state === "EXPORTED";
 
   return (
     <main className="min-h-screen p-6 sm:p-10 max-w-6xl mx-auto space-y-6">
@@ -178,8 +220,62 @@ export default function ProjectDetailPage() {
           >
             📦 Generate tranche pack
           </button>
+          <button
+            onClick={() => bankAct("accept")}
+            disabled={!canBankAccept || busy !== null}
+            className="rounded bg-emerald-700 hover:bg-emerald-600 px-4 py-2 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            🏦 Mark as bank accepted
+          </button>
+          <button
+            onClick={() => {
+              setError(null);
+              setRejectFormOpen((v) => !v);
+            }}
+            disabled={!canBankReject || busy !== null}
+            className="rounded bg-rose-700 hover:bg-rose-600 px-4 py-2 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            🏦 Mark as bank rejected
+          </button>
         </div>
       </header>
+
+      {rejectFormOpen && (
+        <section className="rounded-lg border border-rose-700/50 bg-rose-900/10 p-4 space-y-3">
+          <div>
+            <label className="block text-xs uppercase tracking-wide text-rose-300 mb-1">
+              Rejection reason (required)
+            </label>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              rows={3}
+              placeholder="e.g. Photo 2 off-site — disbursement held."
+              className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-500"
+            />
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => {
+                setRejectFormOpen(false);
+                setRejectReason("");
+                setError(null);
+              }}
+              disabled={busy !== null}
+              className="rounded border border-slate-700 bg-slate-900 hover:bg-slate-800 px-3 py-1.5 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => bankAct("reject")}
+              disabled={!rejectReason.trim() || busy !== null}
+              className="rounded bg-rose-600 hover:bg-rose-500 px-3 py-1.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {busy === "bank_reject" ? "Rejecting…" : "Confirm bank rejection"}
+            </button>
+          </div>
+        </section>
+      )}
 
       {error && (
         <div className="rounded border border-rose-700/50 bg-rose-900/20 px-3 py-2 text-sm text-rose-300">
@@ -285,6 +381,24 @@ function EvidenceCard({ media }: { media: Media }) {
   const r = media.meta.fraud_result;
   const verified = r.verdict === "VERIFIED";
   const [open, setOpen] = useState(false);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoErr, setVideoErr] = useState<string | null>(null);
+
+  const videoPath = media.meta.video_storage_path;
+
+  // Fetch a fresh signed URL for the video the first time the card is expanded.
+  // Evidence bucket is private + org-scoped; Supabase returns a 1-hour signed URL.
+  useEffect(() => {
+    if (!open || !videoPath || videoUrl) return;
+    const supabase = createClient();
+    supabase.storage
+      .from("evidence")
+      .createSignedUrl(videoPath, 3600)
+      .then(({ data, error }) => {
+        if (error) setVideoErr(error.message);
+        else if (data?.signedUrl) setVideoUrl(data.signedUrl);
+      });
+  }, [open, videoPath, videoUrl]);
 
   return (
     <div
@@ -312,6 +426,11 @@ function EvidenceCard({ media }: { media: Media }) {
             <span className="text-xs text-slate-500">
               source: <span className="font-mono">{media.meta.source}</span>
             </span>
+            {videoPath && (
+              <span className="rounded-full bg-sky-900/40 border border-sky-700/40 px-2 py-0.5 text-[10px] text-sky-200">
+                🎥 video
+              </span>
+            )}
           </div>
           <div className="text-xs text-slate-500 mt-1">
             {new Date(media.created_at).toLocaleString()} · sha256: {media.sha256.slice(0, 20)}…
@@ -327,6 +446,32 @@ function EvidenceCard({ media }: { media: Media }) {
 
       {open && (
         <div className="mt-4 space-y-3">
+          {videoPath && (
+            <div className="rounded-md border border-slate-800 bg-slate-950/50 p-2">
+              <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
+                15-second site video
+              </div>
+              {videoErr ? (
+                <div className="text-xs text-rose-300">video unavailable: {videoErr}</div>
+              ) : videoUrl ? (
+                // eslint-disable-next-line jsx-a11y/media-has-caption
+                <video
+                  controls
+                  preload="metadata"
+                  src={videoUrl}
+                  className="w-full max-h-64 rounded bg-black"
+                />
+              ) : (
+                <div className="text-xs text-slate-500">loading video…</div>
+              )}
+              {media.meta.video_bytes != null && (
+                <div className="text-[10px] text-slate-500 font-mono mt-1">
+                  {(media.meta.video_bytes / 1024).toFixed(0)} KB ·{" "}
+                  {media.meta.video_mime_type ?? "video"}
+                </div>
+              )}
+            </div>
+          )}
           <FraudScoreBar score={r.aggregate_score} />
           <FraudCheckList result={r} />
           <div className="text-xs text-slate-500 font-mono">storage: {media.storage_path}</div>
