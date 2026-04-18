@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Clock, CheckCircle2, Users as UsersIcon, Send } from "lucide-react";
 import { createClient } from "@/lib/supabase/browser";
-import { useRequireRole } from "@/lib/hooks";
+import { useRequireRoleFromContext } from "@/components/app-shell";
 import { inviteUser } from "@/lib/actions";
 import { Card, CardContent, Button, EmptyState } from "@/components/ui";
 import type { User, UserRole } from "@/lib/types";
@@ -11,7 +11,7 @@ import type { User, UserRole } from "@/lib/types";
 const ROLES: UserRole[] = ["admin", "bank_officer", "inspector", "supervisor"];
 
 export default function TeamPage() {
-  const { session, loading } = useRequireRole(["admin"]);
+  useRequireRoleFromContext(["admin"]);
   const [users, setUsers] = useState<User[]>([]);
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
@@ -30,7 +30,6 @@ export default function TeamPage() {
   }
 
   useEffect(() => {
-    if (loading || !session) return;
     refresh();
     const supabase = createClient();
     const ch = supabase
@@ -41,7 +40,7 @@ export default function TeamPage() {
     return () => {
       supabase.removeChannel(ch);
     };
-  }, [loading, session]);
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -59,10 +58,6 @@ export default function TeamPage() {
     } finally {
       setBusy(false);
     }
-  }
-
-  if (loading || !session) {
-    return <div className="p-10 text-ink-muted">Loading…</div>;
   }
 
   const sorted = users.slice().sort((a, b) => {

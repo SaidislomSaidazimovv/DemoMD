@@ -1,8 +1,16 @@
 // Shared types for the Tasdiq demo.
 // Mirrors the Core Platform Spec table shapes so the mock DB looks real.
 
+// All roles declared in `schema.sql` `users.role` check constraint.
+// NOT every role has an assignment path in the current app:
+//   - Active (code assigns them): admin, inspector, bank_officer, supervisor,
+//     hr_admin, manager, responder.
+//   - Reserved (schema-only, no assignment path yet): owner, member, viewer.
+//     Kept in the type union so `schema.sql` and TypeScript don't drift. A
+//     future feature (org ownership transfer, public-viewer role) will wire
+//     them — when that lands, update this comment.
 export type UserRole =
-  // Core roles (present in schema.sql `users.role` check constraint)
+  // Core roles
   | "owner"
   | "admin"
   | "member"

@@ -18,7 +18,7 @@ import {
   ArrowRightLeft,
   FileDown,
 } from "lucide-react";
-import { useRequireRole } from "@/lib/hooks";
+import { useRequireRoleFromContext } from "@/components/app-shell";
 import { createClient } from "@/lib/supabase/browser";
 import { createWorkflow } from "@/lib/actions";
 import { Kpi, Card, CardContent, Button, EmptyState } from "@/components/ui";
@@ -29,7 +29,7 @@ import type { LedgerEvent, Organization, Workflow } from "@/lib/types";
 // Users list moved to /team. Raw ledger hashes moved to /audit.
 
 export default function AdminHomePage() {
-  const { session, loading } = useRequireRole(["admin"]);
+  const session = useRequireRoleFromContext(["admin"]);
   const [org, setOrg] = useState<Organization | null>(null);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [events, setEvents] = useState<LedgerEvent[]>([]);
@@ -49,7 +49,6 @@ export default function AdminHomePage() {
   }
 
   useEffect(() => {
-    if (loading || !session) return;
     refresh();
     const supabase = createClient();
     const ch = supabase
@@ -61,7 +60,7 @@ export default function AdminHomePage() {
     return () => {
       supabase.removeChannel(ch);
     };
-  }, [loading, session]);
+  }, []);
 
   const stats = useMemo(() => {
     const total = workflows.length;
@@ -87,12 +86,8 @@ export default function AdminHomePage() {
 
   const awaiting = workflows.find((w) => w.current_state === "EVIDENCE_REQUESTED") ?? null;
 
-  if (loading || !session) {
-    return <div className="p-10 text-ink-muted">Loading…</div>;
-  }
-
   const greeting = greetingFor(new Date());
-  const firstName = (session.profile?.full_name ?? "").split(" ")[0] || "there";
+  const firstName = (session.profile.full_name ?? "").split(" ")[0] || "there";
 
   return (
     <div className="p-6 sm:p-10 max-w-6xl mx-auto space-y-10">

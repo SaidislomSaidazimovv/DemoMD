@@ -11,7 +11,7 @@ import {
   EmptyState,
 } from "@/components/ui";
 import { ToastViewport, useToasts } from "@/components/toast";
-import { useRequireRole } from "@/lib/hooks";
+import { useRequireRoleFromContext } from "@/components/app-shell";
 import { createClient } from "@/lib/supabase/browser";
 import type { LedgerEvent, Media, Workflow } from "@/lib/types";
 
@@ -19,7 +19,7 @@ import type { LedgerEvent, Media, Workflow } from "@/lib/types";
 // Per TASDIQ_UI_REDESIGN.md Screen 3.
 
 export default function DashboardPage() {
-  const { session, loading } = useRequireRole(["bank_officer", "supervisor", "admin"]);
+  const session = useRequireRoleFromContext(["bank_officer", "supervisor", "admin"]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [media, setMedia] = useState<Media[]>([]);
   const [lastPush, setLastPush] = useState<Date | null>(null);
@@ -36,7 +36,6 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    if (loading || !session) return;
     refresh();
     const supabase = createClient();
     const ch = supabase
@@ -80,11 +79,7 @@ export default function DashboardPage() {
     return () => {
       supabase.removeChannel(ch);
     };
-  }, [loading, session]);
-
-  if (loading || !session) {
-    return <div className="p-10 text-ink-muted">Loading…</div>;
-  }
+  }, []);
 
   const total = workflows.length;
   const pending = workflows.filter((w) =>

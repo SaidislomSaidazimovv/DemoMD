@@ -8,7 +8,7 @@ import {
   CardContent,
   EmptyState,
 } from "@/components/ui";
-import { useRequireRole } from "@/lib/hooks";
+import { useRequireRoleFromContext } from "@/components/app-shell";
 import { verifyChain } from "@/lib/ledger";
 import { createClient } from "@/lib/supabase/browser";
 import type { LedgerEvent, Workflow } from "@/lib/types";
@@ -18,7 +18,7 @@ import type { LedgerEvent, Workflow } from "@/lib/types";
 // filterable by event type or project.
 
 export default function AuditPage() {
-  const { session, loading } = useRequireRole(["admin", "bank_officer", "supervisor"]);
+  useRequireRoleFromContext(["admin", "bank_officer", "supervisor"]);
   const [events, setEvents] = useState<LedgerEvent[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [chainValid, setChainValid] = useState<boolean | null>(null);
@@ -44,7 +44,6 @@ export default function AuditPage() {
   }
 
   useEffect(() => {
-    if (loading || !session) return;
     refresh();
     const supabase = createClient();
     const ch = supabase
@@ -54,7 +53,7 @@ export default function AuditPage() {
     return () => {
       supabase.removeChannel(ch);
     };
-  }, [loading, session]);
+  }, []);
 
   const eventTypes = useMemo(() => {
     const s = new Set<string>();
@@ -79,10 +78,6 @@ export default function AuditPage() {
         );
       });
   }, [events, typeFilter, projectFilter, query]);
-
-  if (loading || !session) {
-    return <div className="p-10 text-ink-muted">Loading…</div>;
-  }
 
   return (
     <div className="p-6 sm:p-10 max-w-6xl mx-auto space-y-6 fade-up">

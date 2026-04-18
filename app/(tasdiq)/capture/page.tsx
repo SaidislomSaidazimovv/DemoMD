@@ -802,6 +802,11 @@ function UploadScreen({
 // ============================================================
 // SCREEN 5 — Result
 // ============================================================
+// Per TASDIQ_UI_REDESIGN.md Screen 5: "full-screen verification progress
+// with 5 checkmark animations appearing one by one as checks complete."
+// Server-side the checks run in parallel, so the staggered reveal is a UI
+// effect — each layer reveals 400 ms after the previous one, finishing in
+// ~2 s. Then the verdict + actions fade in.
 function ResultScreen({
   project,
   result,
@@ -811,36 +816,90 @@ function ResultScreen({
   result: ResultView;
   onAnother: () => void;
 }) {
+  const [revealedCount, setRevealedCount] = useState(0);
+  const total = result.checks.length;
+
+  useEffect(() => {
+    if (revealedCount >= total) return;
+    const id = setTimeout(() => setRevealedCount((n) => n + 1), 400);
+    return () => clearTimeout(id);
+  }, [revealedCount, total]);
+
+  const allRevealed = revealedCount >= total;
+  const passed = result.verdict === "VERIFIED";
+
   return (
-    <div className="p-4 space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-xs text-slate-500">{project.reference_id}</div>
-          <div className="text-sm">{project.reference_label}</div>
+    <div className="p-4 space-y-6 fade-up">
+      <div className="text-center space-y-1">
+        <div className="text-xs text-slate-500 uppercase tracking-wide">
+          {project.reference_id}
         </div>
-        <VerdictPill verdict={result.verdict} />
+        <div className="text-sm text-slate-300">{project.reference_label}</div>
       </div>
 
-      <FraudScoreBar score={result.aggregate_score} />
-      <FraudCheckList result={result} />
+      {/* Checkmark stack — reveals 1-by-1 */}
+      <ol className="space-y-2">
+        {result.checks.map((c, idx) => {
+          const revealed = idx < revealedCount;
+          return (
+            <li
+              key={c.name}
+              className={`rounded-md border p-3 flex items-center gap-3 transition-all duration-500 ${
+                revealed ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"
+              } ${
+                c.passed
+                  ? "border-emerald-700/50 bg-emerald-900/10"
+                  : "border-rose-700/50 bg-rose-900/10"
+              }`}
+            >
+              <span className="text-2xl leading-none">
+                {c.passed ? "✅" : "⚠️"}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-slate-100">{c.label}</div>
+                <div className="text-xs text-slate-400 mt-0.5">{c.details}</div>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
 
-      <div className="text-xs text-slate-400 rounded border border-slate-800 bg-slate-900/50 p-3">
-        Your supervisor has been notified. The bank dashboard has updated in realtime.
-      </div>
+      {/* Verdict — appears after all checks revealed */}
+      <div
+        className={`transition-opacity duration-500 ${allRevealed ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+      >
+        <div
+          className={`rounded-lg border p-5 text-center space-y-2 ${
+            passed
+              ? "border-emerald-500/40 bg-emerald-900/20"
+              : "border-amber-500/40 bg-amber-900/20"
+          }`}
+        >
+          <div className="text-3xl">{passed ? "✓" : "⚠"}</div>
+          <div className="text-lg font-semibold text-slate-100">
+            {passed ? "Evidence verified" : "Some checks need review"}
+          </div>
+          <div className="text-xs text-slate-400">
+            {passed
+              ? "Your supervisor has been notified. The bank dashboard has updated in realtime."
+              : "Your supervisor has been notified and will review the flagged checks."}
+          </div>
+        </div>
 
-      <div className="flex gap-2">
-        <Link
-          href="/dashboard"
-          className="flex-1 rounded-md border border-slate-700 bg-slate-900 py-3 text-sm text-center"
-        >
-          View dashboard →
-        </Link>
-        <button
-          onClick={onAnother}
-          className="flex-[2] rounded-md bg-brand py-3 text-sm font-semibold text-brand-fg"
-        >
-          Capture another project
-        </button>
+        <div className="mt-5 flex gap-2">
+          <Link
+            href="/dashboard"
+            className="flex-1 rounded-md border border-slate-700 bg-slate-900 py-3 text-sm text-center min-h-[44px] flex items-center justify-center"
+          >
+            View dashboard →
+          </Link>
+          <button
+            onClick={onAnother}
+            className="flex-[2] rounded-md bg-brand py-3 text-sm font-semibold text-brand-fg min-h-[44px]"
+          >
+            Capture another project
+          </button>
+        </div>
       </div>
     </div>
   );

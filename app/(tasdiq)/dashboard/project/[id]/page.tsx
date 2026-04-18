@@ -30,7 +30,7 @@ import {
 } from "@/components/ui";
 import { StateStepper } from "@/components/state-stepper";
 import { ToastViewport, useToasts } from "@/components/toast";
-import { useRequireRole } from "@/lib/hooks";
+import { useRequireRoleFromContext } from "@/components/app-shell";
 import { verifyChain } from "@/lib/ledger";
 import { generateTranchePack, transitionWorkflow } from "@/lib/actions";
 import { createClient } from "@/lib/supabase/browser";
@@ -41,7 +41,7 @@ type Tab = "evidence" | "details" | "audit";
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id as string;
-  const { session, loading } = useRequireRole(["bank_officer", "supervisor", "admin"]);
+  useRequireRoleFromContext(["bank_officer", "supervisor", "admin"]);
 
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [media, setMedia] = useState<Media[]>([]);
@@ -78,7 +78,7 @@ export default function ProjectDetailPage() {
   }
 
   useEffect(() => {
-    if (loading || !session || !id) return;
+    if (!id) return;
     refresh();
     const supabase = createClient();
     const ch = supabase
@@ -112,7 +112,7 @@ export default function ProjectDetailPage() {
     return () => {
       supabase.removeChannel(ch);
     };
-  }, [loading, session, id]);
+  }, [id]);
 
   async function act(kind: "approve" | "reject") {
     if (!workflow) return;
@@ -185,9 +185,6 @@ export default function ProjectDetailPage() {
     }
   }
 
-  if (loading || !session) {
-    return <div className="p-10 text-ink-muted">Loading…</div>;
-  }
   if (!workflow) {
     return (
       <div className="p-10 space-y-4">

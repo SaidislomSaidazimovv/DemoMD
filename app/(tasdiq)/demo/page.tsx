@@ -12,7 +12,7 @@ import {
   Button,
   EmptyState,
 } from "@/components/ui";
-import { useRequireRole } from "@/lib/hooks";
+import { useRequireRoleFromContext } from "@/components/app-shell";
 import { createClient } from "@/lib/supabase/browser";
 import { simulateReal, simulateFraud, resetDemoProject } from "@/lib/actions";
 import type { FraudResult, Media, Workflow } from "@/lib/types";
@@ -21,7 +21,7 @@ import type { FraudResult, Media, Workflow } from "@/lib/types";
 // Two big CTAs + live fraud-score breakdown + Reset.
 
 export default function DemoPage() {
-  const { session, loading } = useRequireRole(["admin", "bank_officer"]);
+  useRequireRoleFromContext(["admin", "bank_officer"]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState<"real" | "fraud" | "reset" | null>(null);
@@ -44,7 +44,6 @@ export default function DemoPage() {
   }
 
   useEffect(() => {
-    if (loading || !session) return;
     refresh();
     const supabase = createClient();
     const ch = supabase
@@ -56,7 +55,7 @@ export default function DemoPage() {
       supabase.removeChannel(ch);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, session]);
+  }, []);
 
   async function trigger(kind: "real" | "fraud") {
     if (!selectedId) return;
@@ -92,10 +91,6 @@ export default function DemoPage() {
     } finally {
       setBusy(null);
     }
-  }
-
-  if (loading || !session) {
-    return <div className="p-10 text-ink-muted">Loading…</div>;
   }
 
   const active = workflows.find((w) => w.id === selectedId) ?? null;

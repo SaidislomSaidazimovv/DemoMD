@@ -56,30 +56,36 @@ export async function POST(req: Request) {
 
   const sb = createAdminClient();
 
-  // Emit checkin_initiated. Payload is aggregate only — no actor_id either.
-  // Spec: "we log only that a check-in occurred, what resource was offered,
-  // and whether it was accepted. No names."
-  await appendLedgerEvent(sb, {
-    org_id: profile.org_id,
-    workflow_id: null,
-    event_type: "checkin_initiated",
-    actor_id: null, // <-- deliberately null, even though we know who did it
-    payload: {
-      routing_type,
-      accepted,
-    },
-  });
-
-  await appendLedgerEvent(sb, {
-    org_id: profile.org_id,
-    workflow_id: null,
-    event_type: "resource_routed",
-    actor_id: null,
-    payload: {
-      routing_type,
-      accepted,
-    },
-  });
+  // Emit checkin_initiated AND resource_routed in sequence. If the second
+  // fails after the first succeeds, we'd leave an orphan — so wrap in
+  // try/catch and surface a specific error. The chain stays valid either way
+  // (each append is atomic per-row); the caller just knows one of the two
+  // rows didn't land.
+  //
+  // Payload is aggregate only — no actor_id either. Spec: "we log only that
+  // a check-in occurred, what resource was offered, and whether it was
+  // accepted. No names."
+  try {
+    await appendLedgerEvent(sb, {
+      org_id: profile.org_id,
+      workflow_id: null,
+      event_type: "checkin_initiated",
+      actor_id: null,
+      payload: { routing_type, accepted },
+    });
+    await appendLedgerEvent(sb, {
+      org_id: profile.org_id,
+      workflow_id: null,
+      event_type: "resource_routed",
+      actor_id: null,
+      payload: { routing_type, accepted },
+    });
+  } catch (e) {
+    return NextResponse.json(
+      { error: `check-in failed: ${(e as Error).message}` },
+      { status: 500 }
+    );
+  }
 
   return NextResponse.json({ ok: true });
 }

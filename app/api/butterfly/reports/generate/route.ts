@@ -17,7 +17,10 @@ import type { LedgerEvent, Organization } from "@/lib/types";
 // through the hash chain.
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+// 60s matches /api/export (Tasdiq sibling). Both routes walk the full org
+// ledger, recompute a manifest, render a PDF, and assemble a ZIP — orgs with
+// many events need the full 60s budget.
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
