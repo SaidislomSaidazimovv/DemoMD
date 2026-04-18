@@ -72,8 +72,18 @@ export function useSession() {
 }
 
 // Guards a page behind role membership; redirects elsewhere if wrong.
+// Returns `authorized` synchronously — pages should render a "Redirecting…"
+// placeholder while `!authorized` is true, to avoid flashing page content to
+// a user who's about to be kicked out.
 export function useRequireRole(allowed: UserRole[], onDenied = "/") {
   const { session, loading } = useSession();
+  const role = session?.profile?.role;
+  const authorized =
+    !loading &&
+    !!session &&
+    !!session.profile &&
+    (allowed.length === 0 || (role !== undefined && allowed.includes(role)));
+
   useEffect(() => {
     if (loading) return;
     if (!session) {
@@ -84,5 +94,5 @@ export function useRequireRole(allowed: UserRole[], onDenied = "/") {
       window.location.href = onDenied;
     }
   }, [session, loading, allowed.join(","), onDenied]);
-  return { session, loading };
+  return { session, loading, authorized };
 }

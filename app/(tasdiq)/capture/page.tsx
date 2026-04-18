@@ -43,7 +43,7 @@ const RECORD_SECONDS = 15; // per Tasdiq spec: 15-second capture window
 const CHALLENGE_TIMER_SECONDS = 30;
 
 export default function CapturePage() {
-  const { session, loading } = useRequireRole(["inspector", "admin"]);
+  const { session, loading, authorized } = useRequireRole(["inspector", "admin"]);
   const [screen, setScreen] = useState<Screen>("project");
   const [projects, setProjects] = useState<Workflow[]>([]);
   const [selected, setSelected] = useState<Workflow | null>(null);
@@ -60,10 +60,23 @@ export default function CapturePage() {
       .then((r) => setProjects((r.data as Workflow[]) ?? []));
   }, [loading, session]);
 
-  if (loading || !session) {
+  if (loading) {
     return (
       <main className="min-h-screen flex items-center justify-center text-slate-500">
         Loading…
+      </main>
+    );
+  }
+  if (!session || !authorized) {
+    // Not signed in OR wrong role. useRequireRole is already firing the
+    // redirect in an effect; render a placeholder so the wrong-role user
+    // never sees capture content.
+    return (
+      <main className="min-h-screen flex items-center justify-center text-slate-500">
+        <div className="flex items-center gap-3">
+          <span className="inline-block h-4 w-4 rounded-full border-2 border-current border-t-transparent animate-spin" />
+          <span className="text-sm">Redirecting…</span>
+        </div>
       </main>
     );
   }

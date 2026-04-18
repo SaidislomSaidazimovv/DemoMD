@@ -57,17 +57,21 @@ export function BfAppShell({ children }: { children: ReactNode }) {
   const { session, loading } = useSession();
   const pathname = usePathname();
 
-  // Wrong-role / no-profile users bounce. Middleware already catches the
-  // unauthenticated case; this handles "signed in as Tasdiq admin on a
-  // Butterfly URL" gracefully.
+  // Role mismatch → block rendering. Previously this was useEffect-only,
+  // which let the page paint briefly before redirecting. Now the shell
+  // returns a "Redirecting…" placeholder on mismatch so Butterfly content
+  // never renders for wrong-role users (e.g. a Tasdiq inspector typing
+  // /app/home into the URL bar).
+  const role = session?.profile?.role;
+  const roleMismatch = !!role && !ALLOWED_ROLES.includes(role);
+
   useEffect(() => {
     if (loading) return;
     if (!session) return;
-    const role = session.profile?.role;
-    if (!role || !ALLOWED_ROLES.includes(role)) {
+    if (roleMismatch) {
       window.location.href = "/";
     }
-  }, [loading, session]);
+  }, [loading, session, roleMismatch]);
 
   async function signOut() {
     const supabase = createClient();
@@ -79,6 +83,17 @@ export function BfAppShell({ children }: { children: ReactNode }) {
     return (
       <div className="theme-butterfly min-h-screen flex items-center justify-center">
         <span className="text-[color:var(--bf-caption)]">Loading…</span>
+      </div>
+    );
+  }
+
+  if (roleMismatch) {
+    return (
+      <div className="theme-butterfly min-h-screen flex items-center justify-center">
+        <div className="flex items-center gap-3 text-[color:var(--bf-caption)]">
+          <span className="inline-block h-4 w-4 rounded-full border-2 border-current border-t-transparent animate-spin" />
+          <span className="text-[15px]">Redirecting…</span>
+        </div>
       </div>
     );
   }
