@@ -79,3 +79,42 @@ body {
   50%      { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
 }
 .dot-pulse { animation: dot-pulse 1.8s ease-in-out infinite; }
+
+/* =============================================================
+ * Butterfly theme — per BUTTERFLY_SAAS_UI.md §"Color tokens"
+ * Scoped to `.theme-butterfly` so Tasdiq's dark tokens stay the
+ * default for the rest of the app. Only pages inside
+ * app/(butterfly)/app/* wrap in this class.
+ *
+ * Banned decoration (per spec): dark mode, gradients, drop shadows,
+ * stock photos, emojis in copy, exclamation marks, more than one
+ * accent-colored element per viewport.
+ * =============================================================
+ */
+.theme-butterfly {
+  --bf-bg:           #FFFFFF;
+  --bf-bg-muted:     #F5F5F7;
+  --bf-ink:          #0B0B0F;
+  --bf-muted:        #5A5A66;
+  --bf-caption:      #6E6E73;
+  --bf-hair:         #E9E9EF;
+  --bf-accent:       #0A4AD6;
+  --bf-accent-light: #E8EEFB;
+  --bf-verified:     #1F8A5B;
+  --bf-flagged:      #B03030; /* desaturated, institutional — not alarming */
+  --bf-radius:       28px;
+
+  background: var(--bf-bg);
+  color: var(--bf-ink);
+  /* Butterfly uses the system font stack, no custom font loading. */
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Butterfly-specific keyframes — the big-number count-up and
+ * journey-panel fade-ins are driven by Framer Motion inside the
+ * components themselves. These CSS helpers are for simpler cases. */
+@keyframes bf-fade-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.bf-fade-in { animation: bf-fade-in 400ms ease-out both; }

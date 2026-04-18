@@ -18,10 +18,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 
 const ROLE_ROUTE: Record<string, string> = {
+  // Tasdiq roles
   admin: "/admin",
   inspector: "/capture",
   bank_officer: "/dashboard",
   supervisor: "/dashboard",
+  // Butterfly roles
+  hr_admin: "/app/home",
+  manager: "/app/checkin",
+  responder: "/app/checkin",
 };
 
 export async function POST() {

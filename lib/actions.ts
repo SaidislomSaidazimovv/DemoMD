@@ -28,10 +28,12 @@ export async function completeSignup(input: { fullName: string; orgName: string;
   return postJson<{ ok: true; orgId: string }>("/api/auth/complete-signup", input);
 }
 
+import type { UserRole } from "./types";
+
 export interface InviteInput {
   email: string;
   fullName: string;
-  role: "admin" | "bank_officer" | "inspector" | "supervisor";
+  role: UserRole;
 }
 export async function inviteUser(input: InviteInput) {
   return postJson<{ ok: true; userId: string }>("/api/auth/invite", input);

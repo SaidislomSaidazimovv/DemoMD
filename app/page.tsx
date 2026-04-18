@@ -3,10 +3,15 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 const ROLE_ROUTE: Record<string, string> = {
+  // Tasdiq roles
   admin: "/admin",
   inspector: "/capture",
   bank_officer: "/dashboard",
   supervisor: "/dashboard",
+  // Butterfly roles
+  hr_admin: "/app/home",
+  manager: "/app/checkin",
+  responder: "/app/checkin",
 };
 
 export default async function Home() {

@@ -1,7 +1,20 @@
 // Shared types for the Tasdiq demo.
 // Mirrors the Core Platform Spec table shapes so the mock DB looks real.
 
-export type UserRole = "admin" | "inspector" | "bank_officer" | "supervisor";
+export type UserRole =
+  // Core roles (present in schema.sql `users.role` check constraint)
+  | "owner"
+  | "admin"
+  | "member"
+  | "viewer"
+  // Tasdiq-specific
+  | "inspector"
+  | "bank_officer"
+  | "supervisor"
+  // Butterfly-specific
+  | "hr_admin"
+  | "manager"
+  | "responder";
 
 export interface Organization {
   id: string;
