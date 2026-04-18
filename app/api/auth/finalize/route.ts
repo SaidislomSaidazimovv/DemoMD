@@ -67,6 +67,7 @@ export async function POST() {
     full_name?: string;
     pending_org_name?: string;
     pending_org_slug?: string;
+    pending_product?: "tasdiq" | "butterfly";
     invited_org_id?: string;
     invited_role?: string;
   };
@@ -87,7 +88,7 @@ export async function POST() {
     return NextResponse.json({ ok: true, redirect: "/accept-invite" });
   }
 
-  // 3. Fresh traditional signup — create org + admin
+  // 3. Fresh traditional signup — create org + profile
   if (meta.pending_org_name && meta.pending_org_slug) {
     const { data: slugCollision } = await admin
       .from("organizations")
@@ -102,12 +103,18 @@ export async function POST() {
       );
     }
 
+    const product: "tasdiq" | "butterfly" =
+      meta.pending_product === "butterfly" ? "butterfly" : "tasdiq";
+    // Butterfly orgs get the hr_admin owner role; Tasdiq orgs get admin.
+    const role = product === "butterfly" ? "hr_admin" : "admin";
+    const landingRoute = product === "butterfly" ? "/app/home" : "/admin";
+
     const { data: org, error: orgErr } = await admin
       .from("organizations")
       .insert({
         name: meta.pending_org_name,
         slug: meta.pending_org_slug,
-        product: "tasdiq",
+        product,
         settings: {},
       })
       .select("id")
@@ -125,7 +132,7 @@ export async function POST() {
       org_id: org.id,
       email: user.email!,
       full_name: meta.full_name ?? user.email!,
-      role: "admin",
+      role,
       accepted_at: new Date().toISOString(),
     });
     if (profileErr) {
@@ -143,10 +150,11 @@ export async function POST() {
         full_name: meta.full_name,
         pending_org_name: null,
         pending_org_slug: null,
+        pending_product: null,
       },
     });
 
-    return NextResponse.json({ ok: true, redirect: "/admin" });
+    return NextResponse.json({ ok: true, redirect: landingRoute });
   }
 
   // 4. OAuth new user, no metadata ─ send to finish signup

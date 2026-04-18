@@ -11,15 +11,18 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
-  const { fullName, orgName, orgSlug } = body as {
+  const { fullName, orgName, orgSlug, product: rawProduct } = body as {
     fullName?: string;
     orgName?: string;
     orgSlug?: string;
+    product?: "tasdiq" | "butterfly";
   };
 
   if (!fullName || !orgName || !orgSlug) {
     return NextResponse.json({ error: "fullName, orgName, orgSlug required" }, { status: 400 });
   }
+  const product: "tasdiq" | "butterfly" = rawProduct === "butterfly" ? "butterfly" : "tasdiq";
+  const role = product === "butterfly" ? "hr_admin" : "admin";
   if (!/^[a-z0-9-]{3,50}$/.test(orgSlug)) {
     return NextResponse.json({ error: "slug must be 3-50 chars of a-z, 0-9, or -" }, { status: 400 });
   }
@@ -54,7 +57,7 @@ export async function POST(req: Request) {
 
   const { data: org, error: orgErr } = await admin
     .from("organizations")
-    .insert({ name: orgName, slug: orgSlug, product: "tasdiq", settings: {} })
+    .insert({ name: orgName, slug: orgSlug, product, settings: {} })
     .select("id")
     .single();
   if (orgErr || !org) {
@@ -66,7 +69,7 @@ export async function POST(req: Request) {
     org_id: org.id,
     email: user.email!,
     full_name: fullName,
-    role: "admin",
+    role,
     accepted_at: new Date().toISOString(),
   });
   if (profileErr) {
@@ -74,5 +77,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: profileErr.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, orgId: org.id });
+  return NextResponse.json({ ok: true, orgId: org.id, product });
 }

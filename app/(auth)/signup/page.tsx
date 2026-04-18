@@ -19,11 +19,17 @@ export default function SignupPage() {
   );
 }
 
+type Product = "tasdiq" | "butterfly";
+
 function SignupForm() {
   const router = useRouter();
   const params = useSearchParams();
   const initialError = params?.get("error") ?? null;
+  // Allow ?product=butterfly on the URL to preselect (useful for marketing-site CTA).
+  const initialProduct: Product =
+    (params?.get("product") as Product) === "butterfly" ? "butterfly" : "tasdiq";
 
+  const [product, setProduct] = useState<Product>(initialProduct);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -47,6 +53,7 @@ function SignupForm() {
           full_name: fullName,
           pending_org_name: orgName,
           pending_org_slug: orgSlug,
+          pending_product: product,
         },
       },
     });
@@ -70,11 +77,11 @@ function SignupForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ fullName, orgName, orgSlug }),
+        body: JSON.stringify({ fullName, orgName, orgSlug, product }),
       });
       const body = await r.json();
       if (!r.ok) throw new Error(body.error ?? "org creation failed");
-      router.replace("/admin");
+      router.replace(product === "butterfly" ? "/app/home" : "/admin");
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -127,6 +134,24 @@ function SignupForm() {
           onSubmit={submit}
           className="space-y-4 rounded-xl border border-slate-700 bg-slate-900/60 p-6"
         >
+          <Field label="Which product are you signing up for?">
+            <div className="grid grid-cols-2 gap-2">
+              <ProductCard
+                active={product === "tasdiq"}
+                onClick={() => setProduct("tasdiq")}
+                title="Tasdiq"
+                subtitle="Construction milestone verification for banks"
+                accent="emerald"
+              />
+              <ProductCard
+                active={product === "butterfly"}
+                onClick={() => setProduct("butterfly")}
+                title="Butterfly"
+                subtitle="Protocol deployment + compliance reporting for organizations"
+                accent="sky"
+              />
+            </div>
+          </Field>
           <Field label="Your full name">
             <input required value={fullName} onChange={(e) => setFullName(e.target.value)} className="input" />
           </Field>
@@ -221,6 +246,39 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <label className="block text-xs uppercase tracking-wide text-slate-400 mb-1">{label}</label>
       {children}
     </div>
+  );
+}
+
+function ProductCard({
+  active,
+  onClick,
+  title,
+  subtitle,
+  accent,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  subtitle: string;
+  accent: "emerald" | "sky";
+}) {
+  const accentRing =
+    accent === "emerald"
+      ? "border-emerald-500 bg-emerald-900/20"
+      : "border-sky-500 bg-sky-900/20";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`text-left rounded-md border p-3 transition ${
+        active
+          ? accentRing
+          : "border-slate-700 bg-slate-950 hover:border-slate-600"
+      }`}
+    >
+      <div className="text-sm font-semibold">{title}</div>
+      <div className="text-xs text-slate-400 mt-0.5 leading-tight">{subtitle}</div>
+    </button>
   );
 }
 

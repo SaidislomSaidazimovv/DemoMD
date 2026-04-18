@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Your compliance report is ready</title>
+  </head>
+  <body style="margin:0;padding:0;background:#F5F5F7;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#0B0B0F;">
+    <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background:#F5F5F7;">
+      <tr>
+        <td align="center" style="padding:48px 16px;">
+          <table role="presentation" width="560" border="0" cellspacing="0" cellpadding="0" style="max-width:560px;background:#FFFFFF;border:1px solid #E9E9EF;border-radius:28px;">
+            <tr>
+              <td style="padding:40px 32px 8px 32px;">
+                <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:#6E6E73;">Butterfly · Compliance</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 32px 8px 32px;">
+                <h1 style="margin:0;font-size:28px;line-height:1.2;font-weight:700;letter-spacing:-0.02em;color:#0B0B0F;">
+                  Your {{ .QuarterLabel }} report is ready.
+                </h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 32px 8px 32px;">
+                <p style="margin:0;font-size:16px;line-height:1.6;color:#5A5A66;">
+                  {{ .OrgName }}'s quarterly compliance report has been generated from the
+                  aggregate ledger. It is a five-page PDF plus the supporting hash-chain audit.
+                  Download the pack to archive locally, or share the ZIP with your General Counsel.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px 32px 8px 32px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="padding:16px;background:#F5F5F7;border-radius:16px;">
+                      <div style="font-size:13px;letter-spacing:0.14em;text-transform:uppercase;color:#6E6E73;margin-bottom:8px;">
+                        Inside the pack
+                      </div>
+                      <p style="margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.8;color:#0B0B0F;">
+                        01_report/compliance_report.pdf<br />
+                        02_data/aggregate_metrics.json<br />
+                        03_audit/ledger_events.jsonl<br />
+                        03_audit/hash_anchor.txt
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:24px 32px 8px 32px;">
+                <a
+                  href="{{ .DownloadURL }}"
+                  style="display:inline-block;background:#0A4AD6;color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:600;padding:14px 28px;border-radius:9999px;"
+                >
+                  Download the report
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 32px 8px 32px;">
+                <p style="margin:0;font-size:13px;line-height:1.6;color:#6E6E73;">
+                  The download link is signed and expires in 1 hour. Need it again later? Sign in
+                  to Butterfly and re-issue a fresh link from the Reports screen.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:32px 32px 40px 32px;border-top:1px solid #E9E9EF;">
+                <p style="margin:24px 0 0 0;font-size:12px;line-height:1.6;color:#6E6E73;">
+                  Hash-chain verified. OSHA posture documented. Zero PHI collected. Zero logs used
+                  in discipline. If the chain anchor in this pack no longer matches the anchor in
+                  your workspace — that is the privacy purge doing its job.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
