@@ -60,9 +60,22 @@ export async function middleware(req: NextRequest) {
   // Server-verified: round-trips to Supabase Auth to confirm the token is
   // still valid (not revoked, not expired, not forged). This is what
   // @supabase/ssr requires for server-side auth decisions.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  //
+  // Benign failure mode: if the browser still holds an `sb-*-auth-token`
+  // cookie but the embedded refresh token has expired or been rotated away
+  // (typical after Supabase restarts, project key rotations, or long idle
+  // periods), getUser() resolves with `{ user: null, error }` AND
+  // @supabase/ssr logs `Invalid Refresh Token: Refresh Token Not Found` to
+  // stderr. We can't silence the internal log, but we can clear the stale
+  // cookies so the NEXT request doesn't carry them, which makes the log a
+  // one-shot nuisance instead of happening on every page nav.
+  const { data, error } = await supabase.auth.getUser();
+  const user = data?.user ?? null;
+  if (error && isRefreshError(error)) {
+    for (const c of req.cookies.getAll()) {
+      if (c.name.startsWith("sb-")) res.cookies.delete(c.name);
+    }
+  }
   const isAuthed = !!user;
 
   const isPublic = PUBLIC_PATHS.has(pathname);
@@ -81,6 +94,14 @@ export async function middleware(req: NextRequest) {
   }
 
   return res;
+}
+
+// Supabase surfaces refresh-token failure in a few shapes depending on version.
+// Check code first (newer SDKs) and fall back to message substring.
+function isRefreshError(err: { code?: string; message?: string }): boolean {
+  if (err.code === "refresh_token_not_found") return true;
+  const m = (err.message ?? "").toLowerCase();
+  return m.includes("refresh token") || m.includes("refresh_token");
 }
 
 export const config = {

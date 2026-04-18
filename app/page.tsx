@@ -14,9 +14,13 @@ export default async function Home() {
 
   // getUser() verifies the token with Supabase Auth. Safer for server-side
   // auth decisions than getSession(), which decodes cookies locally.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  //
+  // The result destructures to { user: null, error } when the browser sends
+  // an expired refresh cookie. We treat that exactly like "not signed in"
+  // — the middleware already scrubs the stale cookies so this is a one-shot
+  // case per browser.
+  const { data } = await supabase.auth.getUser();
+  const user = data?.user ?? null;
 
   // Signed-in users skip the marketing page.
   if (user) {

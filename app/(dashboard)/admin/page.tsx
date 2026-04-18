@@ -344,6 +344,12 @@ function humanize(event: LedgerEvent): {
         tone: "bg-state-info-bg text-state-info",
         title: "AI review generated",
       };
+    case "demo_reset":
+      return {
+        Icon: ArrowRightLeft,
+        tone: "bg-surface-elevated text-ink-secondary",
+        title: "Demo project reset",
+      };
     default:
       return {
         Icon: ShieldCheck,
