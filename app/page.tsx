@@ -2,16 +2,21 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
-const ROLE_ROUTE: Record<string, string> = {
-  // Tasdiq roles
+// Per-role landing. Product is the primary routing decision (see below);
+// role only matters *within* a product.
+const TASDIQ_ROLE_ROUTE: Record<string, string> = {
   admin: "/admin",
   inspector: "/capture",
   bank_officer: "/dashboard",
   supervisor: "/dashboard",
-  // Butterfly roles
+};
+const BUTTERFLY_ROLE_ROUTE: Record<string, string> = {
   hr_admin: "/app/home",
   manager: "/app/checkin",
   responder: "/app/checkin",
+  // Tasdiq-only roles here would be a misconfiguration (admin in a
+  // butterfly org, etc.) — fall back to /app/home.
+  admin: "/app/home",
 };
 
 export default async function Home() {
@@ -29,12 +34,28 @@ export default async function Home() {
 
   // Signed-in users skip the marketing page.
   if (user) {
-    const { data: profile } = await supabase
+    // Fetch role + org.product in one query — product decides which side of
+    // the app to send the user to, role picks the specific home page inside
+    // that product.
+    const { data: profileRow } = await supabase
       .from("users")
-      .select("role")
+      .select("role, organizations(product)")
       .eq("id", user.id)
       .maybeSingle();
-    redirect(profile ? (ROLE_ROUTE[profile.role] ?? "/admin") : "/complete-signup");
+
+    if (!profileRow) {
+      redirect("/complete-signup");
+    }
+
+    const role = (profileRow as { role?: string }).role ?? "admin";
+    const product =
+      ((profileRow as { organizations?: { product?: string } | null })
+        .organizations?.product as "tasdiq" | "butterfly" | undefined) ?? "tasdiq";
+
+    if (product === "butterfly") {
+      redirect(BUTTERFLY_ROLE_ROUTE[role] ?? "/app/home");
+    }
+    redirect(TASDIQ_ROLE_ROUTE[role] ?? "/admin");
   }
 
   return (

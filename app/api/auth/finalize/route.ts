@@ -17,17 +17,38 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-const ROLE_ROUTE: Record<string, string> = {
-  // Tasdiq roles
+// Product-aware routing — see app/page.tsx for the matching logic.
+const TASDIQ_ROLE_ROUTE: Record<string, string> = {
   admin: "/admin",
   inspector: "/capture",
   bank_officer: "/dashboard",
   supervisor: "/dashboard",
-  // Butterfly roles
+};
+const BUTTERFLY_ROLE_ROUTE: Record<string, string> = {
   hr_admin: "/app/home",
   manager: "/app/checkin",
   responder: "/app/checkin",
+  admin: "/app/home",
 };
+
+async function routeForExistingProfile(
+  admin: ReturnType<typeof createAdminClient>,
+  profileRole: string,
+  userId: string
+): Promise<string> {
+  const { data: orgRow } = await admin
+    .from("users")
+    .select("organizations(product)")
+    .eq("id", userId)
+    .maybeSingle();
+  const product =
+    ((orgRow as { organizations?: { product?: string } | null } | null)
+      ?.organizations?.product as "tasdiq" | "butterfly" | undefined) ?? "tasdiq";
+  if (product === "butterfly") {
+    return BUTTERFLY_ROLE_ROUTE[profileRole] ?? "/app/home";
+  }
+  return TASDIQ_ROLE_ROUTE[profileRole] ?? "/admin";
+}
 
 export async function POST() {
   const ssb = createServerSupabase();
@@ -57,10 +78,12 @@ export async function POST() {
     if (meta.invited_org_id) {
       return NextResponse.json({ ok: true, redirect: "/accept-invite" });
     }
-    return NextResponse.json({
-      ok: true,
-      redirect: ROLE_ROUTE[profile.role as string] ?? "/",
-    });
+    const redirectTo = await routeForExistingProfile(
+      admin,
+      profile.role as string,
+      user.id
+    );
+    return NextResponse.json({ ok: true, redirect: redirectTo });
   }
 
   const meta = (user.user_metadata ?? {}) as {

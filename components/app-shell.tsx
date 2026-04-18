@@ -80,22 +80,29 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { session, loading } = useSession();
   const pathname = usePathname();
 
-  // Resolve allowed roles up-front. The returned value is `null` when the
-  // current path is unknown to the shell, which means "don't gate".
+  // Two independent gates:
+  // 1. PRODUCT gate — every path wrapped in the Tasdiq shell requires the
+  //    user's org.product to equal "tasdiq". A Butterfly-org user (even if
+  //    their role technically exists in Tasdiq too, like `admin`) is NOT
+  //    allowed to see Tasdiq content. This closes the wrong-product flash.
+  // 2. ROLE gate — within Tasdiq, the specific role must match the path.
   const allowed = allowedRolesForPath(pathname);
   const role = session?.profile?.role;
+  const product = session?.product;
+  const productMismatch = !!product && product !== "tasdiq";
   const roleMismatch =
-    !!allowed && !!role && !allowed.includes(role);
+    !productMismatch && !!allowed && !!role && !allowed.includes(role);
+  const shouldRedirect = productMismatch || roleMismatch;
 
   // Fire the redirect as an effect — setting window.location.href inside
   // render would trip hydration warnings.
   useEffect(() => {
     if (loading) return;
     if (!session || !session.profile) return;
-    if (roleMismatch) {
+    if (shouldRedirect) {
       window.location.href = "/";
     }
-  }, [loading, session, roleMismatch]);
+  }, [loading, session, shouldRedirect]);
 
   if (loading) {
     return (
@@ -111,9 +118,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <>{children}</>;
   }
 
-  // Wrong role for this path — show a minimal placeholder. The effect above
-  // fires the actual redirect. No page content renders.
-  if (roleMismatch) {
+  // Wrong product or wrong role — show a minimal placeholder. The effect
+  // above fires the actual redirect. No page content renders.
+  if (shouldRedirect) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-surface-base text-ink-muted">
         <div className="flex items-center gap-3">

@@ -17,12 +17,13 @@ import type { User, UserRole } from "@/lib/types";
 //     Butterfly nav link.
 //   - The session is exposed via BfSessionContext. Pages read from the
 //     context with useBfSession() — no new supabase round-trip.
-//   - This shell also enforces that the signed-in user belongs to a
-//     Butterfly role (or is an admin). Wrong-role users get redirected
-//     out; unauthenticated users get caught by middleware before reaching
-//     here.
+//   - The shell gates on TWO things:
+//       1. organizations.product === "butterfly" (product match)
+//       2. role ∈ Butterfly roles (hr_admin, manager, responder)
+//     Users in a Tasdiq org cannot reach /app/* even if they have a role
+//     name that also exists on the Butterfly side.
 
-const ALLOWED_ROLES: UserRole[] = ["hr_admin", "manager", "responder", "admin"];
+const ALLOWED_ROLES: UserRole[] = ["hr_admin", "manager", "responder"];
 
 const NAV = [
   { href: "/app/home", label: "Home" },
@@ -57,21 +58,24 @@ export function BfAppShell({ children }: { children: ReactNode }) {
   const { session, loading } = useSession();
   const pathname = usePathname();
 
-  // Role mismatch → block rendering. Previously this was useEffect-only,
-  // which let the page paint briefly before redirecting. Now the shell
-  // returns a "Redirecting…" placeholder on mismatch so Butterfly content
-  // never renders for wrong-role users (e.g. a Tasdiq inspector typing
-  // /app/home into the URL bar).
+  // Two gates (both must pass to render Butterfly content):
+  //   1. PRODUCT: the user's org must have product === "butterfly". A
+  //      Tasdiq-org user who types /app/home is bounced.
+  //   2. ROLE: role must be a Butterfly role. Closes the "Tasdiq admin
+  //      wandered in" loophole from before the product gate existed.
   const role = session?.profile?.role;
-  const roleMismatch = !!role && !ALLOWED_ROLES.includes(role);
+  const product = session?.product;
+  const productMismatch = !!product && product !== "butterfly";
+  const roleMismatch = !productMismatch && !!role && !ALLOWED_ROLES.includes(role);
+  const shouldRedirect = productMismatch || roleMismatch;
 
   useEffect(() => {
     if (loading) return;
     if (!session) return;
-    if (roleMismatch) {
+    if (shouldRedirect) {
       window.location.href = "/";
     }
-  }, [loading, session, roleMismatch]);
+  }, [loading, session, shouldRedirect]);
 
   async function signOut() {
     const supabase = createClient();
@@ -87,7 +91,7 @@ export function BfAppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (roleMismatch) {
+  if (shouldRedirect) {
     return (
       <div className="theme-butterfly min-h-screen flex items-center justify-center">
         <div className="flex items-center gap-3 text-[color:var(--bf-caption)]">

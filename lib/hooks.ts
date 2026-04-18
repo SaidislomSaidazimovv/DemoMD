@@ -4,10 +4,16 @@ import { useEffect, useState } from "react";
 import { createClient } from "./supabase/browser";
 import type { User, UserRole } from "./types";
 
+type Product = "tasdiq" | "butterfly";
+
 interface SessionInfo {
   userId: string;
   email: string;
   profile: User | null;
+  // The product of the user's organization — drives both landing-page
+  // redirect and shell-level gating. `null` only until the profile row has
+  // been fetched; once loaded it's always one of the two products.
+  product: Product | null;
 }
 
 // Returns the current Supabase auth user + their public.users profile row.
@@ -29,19 +35,32 @@ export function useSession() {
           setSession(null);
           return;
         }
-        const { data: profile, error: profileErr } = await supabase
+        // Join with organizations so we get the product in one round-trip.
+        // Shells use `product` to gate access — Butterfly pages require a
+        // Butterfly org, Tasdiq pages require a Tasdiq org.
+        const { data: profileRow, error: profileErr } = await supabase
           .from("users")
-          .select("*")
+          .select("*, organizations(product)")
           .eq("id", userRes.user.id)
           .maybeSingle();
         if (cancelled) return;
         if (profileErr) {
           console.error("useSession: failed to load profile", profileErr);
         }
+        const joined = profileRow as
+          | (User & { organizations?: { product?: Product } | null })
+          | null;
+        const product = (joined?.organizations?.product as Product) ?? null;
+        // Strip the joined-nested field so downstream consumers see a clean
+        // User shape on `profile`.
+        const profile: User | null = joined
+          ? ({ ...joined, organizations: undefined } as unknown as User)
+          : null;
         setSession({
           userId: userRes.user.id,
           email: userRes.user.email ?? "",
-          profile: (profile as User) ?? null,
+          profile,
+          product,
         });
       } catch (e) {
         console.error("useSession: hydrate error", e);
