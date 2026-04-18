@@ -15,7 +15,7 @@ const HAPPY_PATH: WorkflowState[] = [
   "BANK_ACCEPTED",
 ];
 
-const LABELS: Record<WorkflowState, string> = {
+const LABELS: Partial<Record<WorkflowState, string>> = {
   DRAFT: "Draft",
   EVIDENCE_REQUESTED: "Evidence",
   CAPTURED: "Captured",

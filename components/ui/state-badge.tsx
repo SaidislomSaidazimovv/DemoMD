@@ -6,7 +6,7 @@ import type { WorkflowState } from "@/lib/types";
 
 type Tone = "pending" | "info" | "verified" | "flagged" | "exported" | "neutral";
 
-const TONE_OF_STATE: Record<WorkflowState, Tone> = {
+const TONE_OF_STATE: Partial<Record<WorkflowState, Tone>> = {
   DRAFT: "neutral",
   EVIDENCE_REQUESTED: "pending",
   CAPTURED: "info",

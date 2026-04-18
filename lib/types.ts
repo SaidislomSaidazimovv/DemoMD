@@ -57,6 +57,7 @@ export interface Session {
 }
 
 export type WorkflowState =
+  // Tasdiq — tranche_verification
   | "DRAFT"
   | "EVIDENCE_REQUESTED"
   | "CAPTURED"
@@ -66,7 +67,19 @@ export type WorkflowState =
   | "REJECTED"
   | "EXPORTED"
   | "BANK_ACCEPTED"
-  | "BANK_REJECTED";
+  | "BANK_REJECTED"
+  // Butterfly — protocol_deployment
+  | "SETUP"
+  | "TRAINING_SCHEDULED"
+  | "TRAINING_ACTIVE"
+  | "DEPLOYED"
+  | "ACTIVE"
+  | "REPORTING"
+  // Butterfly — training_completion
+  | "NOT_STARTED"
+  | "IN_PROGRESS"
+  | "COMPLETED"
+  | "CERTIFIED";
 
 export interface Workflow {
   id: string;

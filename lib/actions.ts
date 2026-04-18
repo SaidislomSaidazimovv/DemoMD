@@ -131,3 +131,21 @@ export async function resetDemoProject(workflowId: string) {
     { workflow_id: workflowId }
   );
 }
+
+// -------------------------------------------------------------
+// Butterfly
+// -------------------------------------------------------------
+
+export async function logButterflyCheckin(input: {
+  routing_type: "988" | "eap" | "counselor" | "self_resolved" | "declined";
+  accepted: boolean;
+}) {
+  return postJson<{ ok: true }>("/api/butterfly/checkin", input);
+}
+
+export async function seedButterflyTraining() {
+  return postJson<{ ok: true; created: number; modules: any[] }>(
+    "/api/butterfly/training/seed",
+    {}
+  );
+}
