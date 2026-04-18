@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Check } from "lucide-react";
 import { BfCard, BfCardContent, BfButton } from "@/components/butterfly/ui";
-import { useRequireRole } from "@/lib/hooks";
+import { useBfSession } from "@/components/butterfly/app-shell";
 import { createClient } from "@/lib/supabase/browser";
 import { seedButterflyDeploy, transitionWorkflow } from "@/lib/actions";
 import type { Workflow, WorkflowState } from "@/lib/types";
@@ -56,7 +56,7 @@ const PHASES: PhaseDef[] = [
 ];
 
 export default function ButterflyDeployPage() {
-  const { session, loading } = useRequireRole(["hr_admin", "admin"]);
+  useBfSession();
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +72,6 @@ export default function ButterflyDeployPage() {
   }, []);
 
   useEffect(() => {
-    if (loading || !session) return;
     refresh();
     const supabase = createClient();
     const ch = supabase
@@ -86,7 +85,7 @@ export default function ButterflyDeployPage() {
     return () => {
       supabase.removeChannel(ch);
     };
-  }, [loading, session, refresh]);
+  }, [refresh]);
 
   async function start() {
     setBusy("start");
@@ -116,14 +115,6 @@ export default function ButterflyDeployPage() {
     } finally {
       setBusy(null);
     }
-  }
-
-  if (loading || !session) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center text-[color:var(--bf-caption)]">
-        Loading…
-      </div>
-    );
   }
 
   return (

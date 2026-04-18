@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { JourneyPanel } from "@/components/butterfly/journey-panel";
 import { WorldMapLights } from "@/components/butterfly/world-map-lights";
 import { BfButton } from "@/components/butterfly/ui";
-import { useRequireRole } from "@/lib/hooks";
+import { useBfSession } from "@/components/butterfly/app-shell";
 
 // Screen 2 — The Journey.
 // Scroll-driven, five panels. Per spec: "panel 1 is somber, 2 is practical,
@@ -14,15 +14,7 @@ import { useRequireRole } from "@/lib/hooks";
 // compressing the story of the protocol.
 
 export default function ButterflyJourneyPage() {
-  const { session, loading } = useRequireRole(["hr_admin", "manager", "responder", "admin"]);
-
-  if (loading || !session) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center text-[color:var(--bf-caption)]">
-        Loading…
-      </div>
-    );
-  }
+  useBfSession();
 
   return (
     <div className="bf-fade-in">

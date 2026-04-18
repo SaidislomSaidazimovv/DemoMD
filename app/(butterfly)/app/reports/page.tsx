@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Download, Eye, FileText, Check } from "lucide-react";
 import { BfCard, BfCardContent, BfButton } from "@/components/butterfly/ui";
-import { useRequireRole } from "@/lib/hooks";
+import { useBfSession } from "@/components/butterfly/app-shell";
 import { createClient } from "@/lib/supabase/browser";
 import { downloadPack, generateButterflyReport } from "@/lib/actions";
 import type { ExportPack } from "@/lib/types";
@@ -14,7 +14,7 @@ import type { ExportPack } from "@/lib/types";
 // messaging — this is legally defensible documentation."
 
 export default function ButterflyReportsPage() {
-  const { session, loading } = useRequireRole(["hr_admin", "admin"]);
+  useBfSession();
   const [packs, setPacks] = useState<ExportPack[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,9 +31,8 @@ export default function ButterflyReportsPage() {
   }, []);
 
   useEffect(() => {
-    if (loading || !session) return;
     refresh();
-  }, [loading, session, refresh]);
+  }, [refresh]);
 
   async function generate() {
     setBusy("generate");
@@ -72,14 +71,6 @@ export default function ButterflyReportsPage() {
     } finally {
       setBusy(null);
     }
-  }
-
-  if (loading || !session) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center text-[color:var(--bf-caption)]">
-        Loading…
-      </div>
-    );
   }
 
   return (

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Clock, Check, Award, BookOpen } from "lucide-react";
 import { BfCard, BfCardContent, BfButton } from "@/components/butterfly/ui";
-import { useRequireRole } from "@/lib/hooks";
+import { useBfSession } from "@/components/butterfly/app-shell";
 import { createClient } from "@/lib/supabase/browser";
 import { seedButterflyTraining, transitionWorkflow } from "@/lib/actions";
 import type { Workflow, WorkflowState } from "@/lib/types";
@@ -21,7 +21,7 @@ import type { Workflow, WorkflowState } from "@/lib/types";
 // enforces the workflow_transitions table seeded via SQL.
 
 export default function ButterflyTrainingPage() {
-  const { session, loading } = useRequireRole(["hr_admin", "manager", "responder", "admin"]);
+  const session = useBfSession();
   const [modules, setModules] = useState<Workflow[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +37,6 @@ export default function ButterflyTrainingPage() {
   }, []);
 
   useEffect(() => {
-    if (loading || !session) return;
     refresh();
     const supabase = createClient();
     const ch = supabase
@@ -56,7 +55,7 @@ export default function ButterflyTrainingPage() {
     return () => {
       supabase.removeChannel(ch);
     };
-  }, [loading, session, refresh]);
+  }, [refresh]);
 
   async function seed() {
     setBusy("seed");
@@ -87,15 +86,7 @@ export default function ButterflyTrainingPage() {
     }
   }
 
-  if (loading || !session) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center text-[color:var(--bf-caption)]">
-        Loading…
-      </div>
-    );
-  }
-
-  const role = session.profile?.role;
+  const role = session.profile.role;
   const canSeed = role === "hr_admin" || role === "admin";
 
   const completedCount = modules.filter((m) => m.current_state === "CERTIFIED").length;

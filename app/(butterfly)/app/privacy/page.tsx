@@ -1,22 +1,15 @@
 "use client";
 
 import { PrivacyComparison } from "@/components/butterfly/ui";
-import { useRequireRole } from "@/lib/hooks";
+import { useBfSession } from "@/components/butterfly/app-shell";
 
 // Screen 4 — Privacy.
 // The screen that closes General Counsel. Side-by-side comparison of
 // what we track vs. what we never see. Pure institutional tone.
 
 export default function ButterflyPrivacyPage() {
-  const { session, loading } = useRequireRole(["hr_admin", "manager", "responder", "admin"]);
-
-  if (loading || !session) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center text-[color:var(--bf-caption)]">
-        Loading…
-      </div>
-    );
-  }
+  // Session is already resolved by the shell; just ensure we're inside it.
+  useBfSession();
 
   return (
     <div className="bf-fade-in px-6 sm:px-10 py-24">

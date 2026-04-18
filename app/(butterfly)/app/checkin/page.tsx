@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Check } from "lucide-react";
 import { CheckinButton, BfButton } from "@/components/butterfly/ui";
-import { useRequireRole } from "@/lib/hooks";
+import { useBfSession } from "@/components/butterfly/app-shell";
 import { logButterflyCheckin } from "@/lib/actions";
 
 // Check-in logger. Per BUTTERFLY_SAAS_UI.md §"The check-in logger":
@@ -23,19 +23,11 @@ const ROUTING_OPTIONS: { value: Routing; label: string }[] = [
 ];
 
 export default function ButterflyCheckinPage() {
-  const { session, loading } = useRequireRole(["hr_admin", "manager", "responder", "admin"]);
+  useBfSession();
   const [step, setStep] = useState<Step>("tap1");
   const [routing, setRouting] = useState<Routing | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  if (loading || !session) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center text-[color:var(--bf-caption)]">
-        Loading…
-      </div>
-    );
-  }
 
   function reset() {
     setStep("tap1");

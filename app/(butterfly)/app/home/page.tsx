@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { BigNumber, BfButton } from "@/components/butterfly/ui";
-import { useRequireRole } from "@/lib/hooks";
+import { useBfSession } from "@/components/butterfly/app-shell";
 import { createClient } from "@/lib/supabase/browser";
 
 // Screen 1 — The One Number.
@@ -18,12 +18,12 @@ import { createClient } from "@/lib/supabase/browser";
 // metrics + privacy note.
 
 export default function ButterflyHomePage() {
-  const { session, loading } = useRequireRole(["hr_admin", "manager", "responder", "admin"]);
+  // Session is already resolved by the shell; reading from context is sync.
+  useBfSession();
   const [orgName, setOrgName] = useState<string | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
 
   useEffect(() => {
-    if (loading || !session) return;
     const supabase = createClient();
     (async () => {
       const { data: org } = await supabase
@@ -39,15 +39,7 @@ export default function ButterflyHomePage() {
         .eq("event_type", "checkin_initiated");
       setStats(summarize((events as CheckinEvent[]) ?? []));
     })();
-  }, [loading, session]);
-
-  if (loading || !session) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center text-[color:var(--bf-caption)]">
-        Loading…
-      </div>
-    );
-  }
+  }, []);
 
   const total = stats?.total ?? 0;
   const today = new Date();
