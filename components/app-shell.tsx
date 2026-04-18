@@ -73,6 +73,12 @@ function allowedRolesForPath(pathname: string | null): UserRole[] | null {
     return ["admin", "bank_officer", "supervisor"];
   }
   if (pathname === "/demo") return ["admin", "bank_officer"];
+  if (pathname === "/settings") {
+    // Open to every Tasdiq role — all users should be able to see their own
+    // account and their org details. Edit affordances inside the page are
+    // hidden for non-admin roles.
+    return ["admin", "bank_officer", "supervisor", "inspector"];
+  }
   return null;
 }
 

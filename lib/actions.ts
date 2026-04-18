@@ -163,3 +163,19 @@ export async function seedButterflyDeploy() {
     {}
   );
 }
+
+// -------------------------------------------------------------
+// Org settings
+// -------------------------------------------------------------
+
+export async function updateOrgName(input: { name: string }) {
+  const r = await fetch("/api/org/update", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    credentials: "include",
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data?.error ?? `Request failed (${r.status})`);
+  return data as { ok: true; org: any; unchanged?: boolean };
+}

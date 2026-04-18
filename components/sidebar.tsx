@@ -212,7 +212,7 @@ export function Sidebar({
           {userMenuOpen && !collapsed && (
             <div className="absolute bottom-full left-3 right-3 mb-2 rounded-md border border-hairline-strong bg-surface-elevated shadow-xl overflow-hidden">
               <Link
-                href="/team"
+                href="/settings"
                 className="flex items-center gap-2 px-3 py-2 text-body text-ink-secondary hover:text-ink hover:bg-surface-card"
               >
                 <Settings size={16} /> Settings
