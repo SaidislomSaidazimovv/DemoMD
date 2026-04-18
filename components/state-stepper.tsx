@@ -1,11 +1,10 @@
 "use client";
 
 import type { WorkflowState } from "@/lib/types";
+import { Check } from "lucide-react";
 
 // Horizontal state stepper for tranche_verification.
-// Shows the happy-path progression with the current state highlighted. If the
-// workflow is in a fork state (FLAGGED / REJECTED / BANK_REJECTED), that is
-// rendered as an inline annotation at the relevant step.
+// Uses design tokens. Active step pulses per the spec.
 
 const HAPPY_PATH: WorkflowState[] = [
   "EVIDENCE_REQUESTED",
@@ -18,7 +17,7 @@ const HAPPY_PATH: WorkflowState[] = [
 
 const LABELS: Record<WorkflowState, string> = {
   DRAFT: "Draft",
-  EVIDENCE_REQUESTED: "Evidence requested",
+  EVIDENCE_REQUESTED: "Evidence",
   CAPTURED: "Captured",
   AUTO_VERIFIED: "Auto-verified",
   FLAGGED: "Flagged",
@@ -29,7 +28,6 @@ const LABELS: Record<WorkflowState, string> = {
   BANK_REJECTED: "Bank rejected",
 };
 
-// Map off-path states to the step they belong near.
 const FORK_AT: Partial<Record<WorkflowState, WorkflowState>> = {
   FLAGGED: "AUTO_VERIFIED",
   REJECTED: "APPROVED",
@@ -50,38 +48,42 @@ export function StateStepper({ state }: { state: WorkflowState }) {
           const isForkHere = !onHappyPath && idx === currentIdx;
           return (
             <li key={step} className="flex items-center flex-1 min-w-0">
-              <div className="flex flex-col items-center min-w-0">
+              <div className="flex flex-col items-center min-w-0 shrink-0">
                 <div
-                  className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                    isForkHere
-                      ? "bg-rose-600 text-white"
+                  className={`
+                    h-8 w-8 rounded-full flex items-center justify-center text-caption font-bold shrink-0
+                    transition-colors duration-page
+                    ${isForkHere
+                      ? "bg-state-flagged text-white"
                       : active
-                        ? "bg-emerald-500 text-emerald-950"
+                        ? "bg-accent text-[#04130B] dot-pulse"
                         : done
-                          ? "bg-emerald-900/70 text-emerald-300 border border-emerald-700"
-                          : "bg-slate-800 text-slate-500 border border-slate-700"
-                  }`}
+                          ? "bg-state-verified/20 text-state-verified border border-state-verified/40"
+                          : "bg-surface-elevated text-ink-muted border border-hairline-subtle"
+                    }
+                  `}
                 >
-                  {done ? "✓" : idx + 1}
+                  {done ? <Check size={16} /> : idx + 1}
                 </div>
                 <div
-                  className={`mt-1 text-[10px] text-center w-20 leading-tight ${
-                    isForkHere
-                      ? "text-rose-300"
+                  className={`
+                    mt-1.5 text-micro text-center w-20 leading-tight uppercase
+                    ${isForkHere
+                      ? "text-state-flagged"
                       : active
-                        ? "text-emerald-300"
+                        ? "text-ink"
                         : done
-                          ? "text-slate-300"
-                          : "text-slate-500"
-                  }`}
+                          ? "text-ink-secondary"
+                          : "text-ink-muted"}
+                  `}
                 >
                   {isForkHere ? LABELS[state] : LABELS[step]}
                 </div>
               </div>
               {idx < HAPPY_PATH.length - 1 && (
                 <div
-                  className={`flex-1 h-0.5 mx-1 mb-4 ${
-                    idx < currentIdx ? "bg-emerald-700" : "bg-slate-800"
+                  className={`flex-1 h-0.5 mx-2 mb-6 transition-colors duration-page ${
+                    idx < currentIdx ? "bg-state-verified/60" : "bg-hairline-subtle"
                   }`}
                 />
               )}

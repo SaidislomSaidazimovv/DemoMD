@@ -2,19 +2,32 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { FraudCheckList, FraudScoreBar, VerdictPill } from "@/components/ui";
+import { CheckCircle2, AlertTriangle, RotateCcw } from "lucide-react";
+import {
+  FraudCheckList,
+  FraudScoreBar,
+  VerdictPill,
+  Card,
+  CardContent,
+  Button,
+  EmptyState,
+} from "@/components/ui";
 import { useRequireRole } from "@/lib/hooks";
 import { createClient } from "@/lib/supabase/browser";
-import { simulateReal, simulateFraud } from "@/lib/actions";
+import { simulateReal, simulateFraud, resetDemoProject } from "@/lib/actions";
 import type { FraudResult, Media, Workflow } from "@/lib/types";
+
+// Demo Control is the template for the rest of the app per TASDIQ_UI_REDESIGN.md.
+// Two big CTAs + live fraud-score breakdown + Reset.
 
 export default function DemoPage() {
   const { session, loading } = useRequireRole(["admin", "bank_officer"]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"real" | "fraud" | null>(null);
+  const [busy, setBusy] = useState<"real" | "fraud" | "reset" | null>(null);
   const [last, setLast] = useState<Media | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [resetNotice, setResetNotice] = useState<string | null>(null);
 
   async function refresh() {
     const supabase = createClient();
@@ -49,6 +62,7 @@ export default function DemoPage() {
     if (!selectedId) return;
     setBusy(kind);
     setError(null);
+    setResetNotice(null);
     try {
       const r = kind === "real" ? await simulateReal(selectedId) : await simulateFraud(selectedId);
       if (r.media) setLast(r.media as Media);
@@ -59,183 +73,220 @@ export default function DemoPage() {
     }
   }
 
+  async function onReset() {
+    if (!selectedId) return;
+    if (!confirm("Reset this project? All simulated evidence, ledger events, and tranche packs for it will be deleted. Workflow returns to EVIDENCE_REQUESTED.")) {
+      return;
+    }
+    setBusy("reset");
+    setError(null);
+    try {
+      const r = await resetDemoProject(selectedId);
+      setLast(null);
+      setResetNotice(
+        `Cleared ${r.cleared.media} evidence row${r.cleared.media === 1 ? "" : "s"} and ${r.cleared.storage_files} storage file${r.cleared.storage_files === 1 ? "" : "s"}.`
+      );
+      refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (loading || !session) {
-    return <main className="min-h-screen p-10 text-slate-500">Loading…</main>;
+    return <div className="p-10 text-ink-muted">Loading…</div>;
   }
 
   const active = workflows.find((w) => w.id === selectedId) ?? null;
 
   return (
-    <main className="min-h-screen p-6 sm:p-10 max-w-4xl mx-auto space-y-8">
-      <header className="flex flex-wrap items-center justify-between gap-4">
+    <div className="p-6 sm:p-10 max-w-4xl mx-auto space-y-8 fade-up">
+      <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Demo Control</h1>
-          <p className="text-sm text-slate-400">Inject REAL or FRAUD captures into a project.</p>
+          <h1 className="text-heading-1 text-ink">Demo Control</h1>
+          <p className="text-caption text-ink-tertiary mt-1">
+            Inject REAL or FRAUD captures into a project.
+          </p>
         </div>
-        <nav className="flex gap-2 text-sm">
-          <Link href="/dashboard" className="rounded border border-slate-700 bg-slate-800 px-3 py-1.5 hover:bg-slate-700">
-            Dashboard →
-          </Link>
-          {session.profile?.role === "admin" && (
-            <Link href="/admin" className="rounded border border-slate-700 bg-slate-800 px-3 py-1.5 hover:bg-slate-700">
-              Admin →
-            </Link>
-          )}
-        </nav>
+        {active && (
+          <Button
+            variant="ghost"
+            size="sm"
+            leftIcon={<RotateCcw size={14} />}
+            onClick={onReset}
+            disabled={busy !== null}
+            loading={busy === "reset"}
+          >
+            Reset demo
+          </Button>
+        )}
       </header>
 
       {workflows.length === 0 ? (
-        <section className="rounded-xl border border-amber-700/40 bg-amber-900/10 p-6">
-          <h2 className="text-lg font-semibold text-amber-200">No projects to simulate</h2>
-          <p className="text-sm text-amber-200/80 mt-2">
-            Admin needs to create a project from{" "}
-            <Link href="/admin" className="underline">
-              /admin
-            </Link>{" "}
-            first.
-          </p>
-        </section>
+        <EmptyState
+          icon={<AlertTriangle />}
+          title="No projects to simulate"
+          description="An admin needs to create a project first."
+          action={
+            <Link href="/admin">
+              <Button variant="primary">Go to Home</Button>
+            </Link>
+          }
+        />
       ) : (
         <>
-          <section className="rounded-lg border border-slate-700 bg-slate-900/60 p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <div className="text-xs uppercase tracking-wide text-slate-500">Target project</div>
-                <select
-                  value={selectedId ?? ""}
-                  onChange={(e) => setSelectedId(e.target.value)}
-                  className="mt-1 w-full max-w-md rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-                >
-                  {workflows.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.reference_label} · {w.current_state}
-                    </option>
-                  ))}
-                </select>
+          <Card>
+            <CardContent className="py-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="text-micro uppercase text-ink-muted">Target project</div>
+                  <select
+                    value={selectedId ?? ""}
+                    onChange={(e) => setSelectedId(e.target.value)}
+                    className="mt-2 w-full max-w-md rounded-md border border-hairline-strong bg-surface-subtle px-3 py-2 text-body text-ink focus:outline-none focus:border-accent"
+                  >
+                    {workflows.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.reference_label} · {w.current_state.replace(/_/g, " ")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {active && (
+                  <div className="text-right">
+                    <div className="text-micro uppercase text-ink-muted">Challenge code</div>
+                    <div className="mt-1 font-mono text-[28px] font-bold text-accent bg-surface-subtle inline-block px-4 py-1.5 rounded-md tracking-widest">
+                      {active.meta.challenge_code}
+                    </div>
+                  </div>
+                )}
               </div>
               {active && (
-                <div className="text-right text-sm">
-                  <div className="text-slate-500 text-xs">Challenge code</div>
-                  <div className="mt-1 font-mono text-2xl text-emerald-300 bg-slate-800 inline-block px-3 py-1 rounded">
-                    {active.meta.challenge_code}
-                  </div>
+                <div className="mt-5 grid sm:grid-cols-3 gap-3">
+                  <Fact
+                    label="GPS center"
+                    value={`${active.meta.coordinates.lat}, ${active.meta.coordinates.lng}`}
+                  />
+                  <Fact label="Geofence" value={`${active.meta.geofence_radius_meters} m`} />
+                  <Fact label="State" value={active.current_state.replace(/_/g, " ").toLowerCase()} />
                 </div>
               )}
-            </div>
-            {active && (
-              <div className="mt-4 grid sm:grid-cols-3 gap-3 text-xs text-slate-400">
-                <Fact
-                  label="GPS center"
-                  value={`${active.meta.coordinates.lat}, ${active.meta.coordinates.lng}`}
-                />
-                <Fact label="Geofence" value={`${active.meta.geofence_radius_meters} m`} />
-                <Fact label="State" value={active.current_state.replace(/_/g, " ")} />
-              </div>
-            )}
-          </section>
+            </CardContent>
+          </Card>
 
           <section className="grid sm:grid-cols-2 gap-4">
             <button
               onClick={() => trigger("real")}
               disabled={!active || busy !== null}
-              className="text-left rounded-xl border border-emerald-500/40 bg-emerald-600/10 hover:bg-emerald-600/20 p-6 transition disabled:opacity-50"
+              className="text-left rounded-lg border border-state-verified/40 bg-state-verified-bg hover:bg-state-verified/15 p-6 transition-colors duration-base disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <div className="text-2xl font-bold text-emerald-200">✅ Simulate REAL capture</div>
-              <p className="mt-2 text-sm text-emerald-100/70">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="text-state-verified" size={24} />
+                <span className="text-heading-2 text-state-verified">Simulate REAL capture</span>
+              </div>
+              <p className="mt-3 text-body text-ink-secondary">
                 GPS at site · motion variance 0.45 · fresh unique photo · correct code.
               </p>
-              <p className="mt-3 text-xs text-emerald-300/60">
-                Expected: all 5 layers pass · <strong>AUTO_VERIFIED</strong>
+              <p className="mt-3 text-caption text-ink-tertiary">
+                Expected: all 5 layers pass · <strong className="text-state-verified">AUTO_VERIFIED</strong>
               </p>
-              {busy === "real" && <p className="mt-2 text-xs text-emerald-300">Submitting…</p>}
+              {busy === "real" && (
+                <p className="mt-2 text-caption text-state-verified">Submitting…</p>
+              )}
             </button>
 
             <button
               onClick={() => trigger("fraud")}
               disabled={!active || busy !== null}
-              className="text-left rounded-xl border border-rose-500/40 bg-rose-600/10 hover:bg-rose-600/20 p-6 transition disabled:opacity-50"
+              className="text-left rounded-lg border border-state-flagged/40 bg-state-flagged-bg hover:bg-state-flagged/15 p-6 transition-colors duration-base disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <div className="text-2xl font-bold text-rose-200">🚨 Simulate FRAUD capture</div>
-              <p className="mt-2 text-sm text-rose-100/70">
-                GPS 2km off · phone flat · duplicate hash · stale code · uniform lighting.
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="text-state-flagged" size={24} />
+                <span className="text-heading-2 text-state-flagged">Simulate FRAUD capture</span>
+              </div>
+              <p className="mt-3 text-body text-ink-secondary">
+                GPS 2 km off · phone flat · duplicate hash · stale code · uniform lighting.
               </p>
-              <p className="mt-3 text-xs text-rose-300/60">
-                Expected: all 5 layers fail · <strong>FLAGGED</strong>
+              <p className="mt-3 text-caption text-ink-tertiary">
+                Expected: all 5 layers fail · <strong className="text-state-flagged">FLAGGED</strong>
               </p>
-              {busy === "fraud" && <p className="mt-2 text-xs text-rose-300">Submitting…</p>}
+              {busy === "fraud" && (
+                <p className="mt-2 text-caption text-state-flagged">Submitting…</p>
+              )}
             </button>
           </section>
 
           {error && (
-            <div className="rounded border border-rose-700/50 bg-rose-900/20 px-3 py-2 text-sm text-rose-300">
+            <div className="rounded-md border border-state-flagged/40 bg-state-flagged-bg px-4 py-3 text-body text-state-flagged">
               {error}
+            </div>
+          )}
+
+          {resetNotice && (
+            <div className="rounded-md border border-state-info/40 bg-state-info-bg px-4 py-3 text-body text-state-info">
+              {resetNotice}
             </div>
           )}
 
           {last && <LastResult media={last} />}
 
-          <p className="text-xs text-slate-500">
+          <p className="text-caption text-ink-muted">
             Open{" "}
-            <Link href="/dashboard" className="underline">
+            <Link href="/dashboard" className="underline text-ink-tertiary hover:text-ink">
               /dashboard
             </Link>{" "}
             in another tab — it updates via realtime, no refresh.
           </p>
         </>
       )}
-    </main>
+    </div>
   );
 }
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded border border-slate-800 bg-slate-950/50 p-2">
-      <div className="uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="text-slate-200 font-mono mt-0.5">{value}</div>
+    <div className="rounded-md border border-hairline-subtle bg-surface-subtle p-3">
+      <div className="text-micro uppercase text-ink-muted">{label}</div>
+      <div className="text-body text-ink-secondary font-mono mt-0.5 truncate">{value}</div>
     </div>
   );
 }
 
 function LastResult({ media }: { media: Media }) {
   const r: FraudResult = media.meta.fraud_result;
+  const verified = r.verdict === "VERIFIED";
   return (
-    <section
-      className={`rounded-xl border p-5 ${
-        r.verdict === "VERIFIED"
-          ? "border-emerald-500/40 bg-emerald-900/10"
-          : "border-rose-500/40 bg-rose-900/10"
-      }`}
-    >
-      <div className="flex items-center gap-4">
-        {media.meta.data_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={media.meta.data_url}
-            alt="last"
-            className="w-20 h-20 rounded object-cover border border-slate-700"
-          />
-        ) : (
-          <span className="text-4xl">{media.meta.thumbnail_emoji ?? "📷"}</span>
-        )}
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <VerdictPill verdict={r.verdict} />
-            <span className="font-mono text-sm text-slate-300">
-              score {r.aggregate_score.toFixed(2)}
-            </span>
-          </div>
-          <div className="mt-1 text-xs text-slate-500">
-            {media.id} · {new Date(media.created_at).toLocaleTimeString()}
+    <Card className={verified ? "border-state-verified/40" : "border-state-flagged/40"}>
+      <CardContent className="py-5 space-y-4">
+        <div className="flex items-center gap-4">
+          {media.meta.data_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={media.meta.data_url}
+              alt="last"
+              className="w-16 h-16 rounded-md object-cover border border-hairline-subtle shrink-0"
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-md bg-surface-elevated flex items-center justify-center text-3xl shrink-0">
+              {media.meta.thumbnail_emoji ?? "📷"}
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 flex-wrap">
+              <VerdictPill verdict={r.verdict} />
+              <span className="font-mono text-caption text-ink-secondary">
+                score {r.aggregate_score.toFixed(2)}
+              </span>
+            </div>
+            <div className="text-caption text-ink-tertiary mt-1 font-mono truncate">
+              {media.id} · {new Date(media.created_at).toLocaleTimeString()}
+            </div>
           </div>
         </div>
-      </div>
-
-      <div className="mt-4">
         <FraudScoreBar score={r.aggregate_score} />
-      </div>
-      <div className="mt-3">
         <FraudCheckList result={r} />
-      </div>
-    </section>
+      </CardContent>
+    </Card>
   );
 }

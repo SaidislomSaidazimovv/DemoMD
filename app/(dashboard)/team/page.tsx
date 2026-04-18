@@ -1,10 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Clock, CheckCircle2, Users as UsersIcon, Send } from "lucide-react";
 import { createClient } from "@/lib/supabase/browser";
 import { useRequireRole } from "@/lib/hooks";
 import { inviteUser } from "@/lib/actions";
+import { Card, CardContent, Button, EmptyState } from "@/components/ui";
 import type { User, UserRole } from "@/lib/types";
 
 const ROLES: UserRole[] = ["admin", "bank_officer", "inspector", "supervisor"];
@@ -31,8 +32,6 @@ export default function TeamPage() {
   useEffect(() => {
     if (loading || !session) return;
     refresh();
-
-    // Live refresh when someone accepts their invite
     const supabase = createClient();
     const ch = supabase
       .channel("team-live")
@@ -63,163 +62,165 @@ export default function TeamPage() {
   }
 
   if (loading || !session) {
-    return <main className="min-h-screen p-10 text-slate-500">Loading…</main>;
+    return <div className="p-10 text-ink-muted">Loading…</div>;
   }
 
-  // Sort: pending first (so admin sees who hasn't activated), then active
   const sorted = users.slice().sort((a, b) => {
     const aP = a.accepted_at == null;
     const bP = b.accepted_at == null;
     if (aP !== bP) return aP ? -1 : 1;
     return a.created_at.localeCompare(b.created_at);
   });
-
   const pendingCount = sorted.filter((u) => u.accepted_at == null).length;
 
   return (
-    <main className="min-h-screen p-6 sm:p-10 max-w-5xl mx-auto space-y-8">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold">Team</h1>
-          <p className="text-sm text-slate-400">Invite members of your organization.</p>
-        </div>
-        <nav className="flex gap-2 text-sm">
-          <Link href="/admin" className="rounded border border-slate-700 bg-slate-800 px-3 py-1.5 hover:bg-slate-700">
-            ← Admin
-          </Link>
-        </nav>
+    <div className="p-6 sm:p-10 max-w-5xl mx-auto space-y-8 fade-up">
+      <header>
+        <h1 className="text-heading-1 text-ink">Team</h1>
+        <p className="text-body text-ink-tertiary mt-1">
+          Invite members of your organization.
+        </p>
       </header>
 
-      <section className="rounded-xl border border-slate-700 bg-slate-900/60 p-6">
-        <h2 className="text-lg font-semibold mb-4">Invite a teammate</h2>
-        <form onSubmit={submit} className="grid sm:grid-cols-4 gap-3 items-end">
-          <Field label="Full name" className="sm:col-span-1">
-            <input
-              required
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              className="input"
-            />
-          </Field>
-          <Field label="Email" className="sm:col-span-2">
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="input"
-              placeholder="sardor@nbu.uz"
-            />
-          </Field>
-          <Field label="Role" className="sm:col-span-1">
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as UserRole)}
-              className="input"
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r.replace(/_/g, " ")}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <div className="sm:col-span-4">
-            {error && (
-              <div className="mb-3 rounded border border-rose-700/50 bg-rose-900/20 px-3 py-2 text-sm text-rose-300">
-                {error}
-              </div>
-            )}
-            {notice && (
-              <div className="mb-3 rounded border border-emerald-700/50 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-300">
-                {notice}
-              </div>
-            )}
-            <button
-              type="submit"
-              disabled={busy}
-              className="rounded-md bg-brand hover:bg-brand/90 px-4 py-2 text-sm font-semibold text-brand-fg disabled:opacity-50"
-            >
-              {busy ? "Sending…" : "Send invite"}
-            </button>
-          </div>
-        </form>
-      </section>
+      <Card>
+        <CardContent className="py-5">
+          <h2 className="text-heading-2 text-ink mb-4">Invite a teammate</h2>
+          <form onSubmit={submit} className="grid sm:grid-cols-4 gap-3 items-end">
+            <Field label="Full name" className="sm:col-span-1">
+              <input
+                required
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className="input"
+              />
+            </Field>
+            <Field label="Email" className="sm:col-span-2">
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="input"
+                placeholder="sardor@nbu.uz"
+              />
+            </Field>
+            <Field label="Role" className="sm:col-span-1">
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value as UserRole)}
+                className="input"
+              >
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {r.replace(/_/g, " ")}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <div className="sm:col-span-4 space-y-2">
+              {error && (
+                <div className="rounded-md border border-state-flagged/40 bg-state-flagged-bg px-3 py-2 text-caption text-state-flagged">
+                  {error}
+                </div>
+              )}
+              {notice && (
+                <div className="rounded-md border border-state-verified/40 bg-state-verified-bg px-3 py-2 text-caption text-state-verified">
+                  {notice}
+                </div>
+              )}
+              <Button
+                type="submit"
+                variant="primary"
+                leftIcon={<Send size={16} />}
+                loading={busy}
+                disabled={busy}
+              >
+                {busy ? "Sending…" : "Send invite"}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
 
       <section>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">
-            Members <span className="text-sm font-normal text-slate-500">({users.length})</span>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-heading-2 text-ink">
+            Members{" "}
+            <span className="text-caption text-ink-muted font-normal">({users.length})</span>
           </h2>
           {pendingCount > 0 && (
-            <div className="text-xs text-amber-300 bg-amber-900/20 border border-amber-700/40 rounded px-2 py-1">
+            <div className="text-caption text-state-pending bg-state-pending-bg border border-state-pending/30 rounded-full px-3 py-1">
               {pendingCount} pending invitation{pendingCount === 1 ? "" : "s"}
             </div>
           )}
         </div>
-        <div className="rounded-lg border border-slate-800 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-900 text-slate-400 text-xs uppercase tracking-wide">
-              <tr>
-                <th className="text-left p-3">Name</th>
-                <th className="text-left p-3">Email</th>
-                <th className="text-left p-3">Role</th>
-                <th className="text-left p-3">Status</th>
-                <th className="text-right p-3">Joined</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((u) => {
-                const pending = u.accepted_at == null;
-                return (
-                  <tr
-                    key={u.id}
-                    className={`border-t border-slate-800 ${
-                      pending ? "bg-amber-900/10" : ""
-                    }`}
-                  >
-                    <td className="p-3">{u.full_name}</td>
-                    <td className="p-3 font-mono text-xs text-slate-300">{u.email}</td>
-                    <td className="p-3">
-                      <span className="rounded bg-slate-800 px-2 py-0.5 text-xs">
-                        {u.role.replace(/_/g, " ")}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      {pending ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 border border-amber-500/40 px-2 py-0.5 text-xs font-semibold text-amber-200">
-                          ⏳ Pending
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 text-xs font-semibold text-emerald-200">
-                          ✓ Active
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-3 text-right text-xs text-slate-500">
-                      {pending
-                        ? `invited ${new Date(u.created_at).toLocaleDateString()}`
-                        : new Date(u.accepted_at!).toLocaleDateString()}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+
+        {users.length === 0 ? (
+          <EmptyState
+            icon={<UsersIcon />}
+            title="No teammates yet"
+            description="Invite inspectors, supervisors, and bank officers above. They'll get a magic-link email to set their password."
+          />
+        ) : (
+          <Card>
+            <ul className="divide-y divide-hairline-subtle">
+              {sorted.map((u) => (
+                <MemberRow key={u.id} user={u} />
+              ))}
+            </ul>
+          </Card>
+        )}
       </section>
 
       <style jsx>{`
         :global(.input) {
           width: 100%;
           border-radius: 0.375rem;
-          border: 1px solid rgb(51 65 85);
-          background: rgb(2 6 23);
+          border: 1px solid var(--border-strong);
+          background: var(--bg-subtle);
           padding: 0.5rem 0.75rem;
           font-size: 0.875rem;
+          color: var(--text-primary);
+        }
+        :global(.input:focus) {
+          outline: none;
+          border-color: var(--accent);
         }
       `}</style>
-    </main>
+    </div>
+  );
+}
+
+function MemberRow({ user }: { user: User }) {
+  const pending = user.accepted_at == null;
+  return (
+    <li
+      className={`px-6 py-4 flex items-center gap-4 ${
+        pending ? "bg-state-pending-bg/30" : ""
+      }`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="text-body text-ink font-medium truncate">{user.full_name}</div>
+        <div className="text-caption text-ink-tertiary font-mono truncate">{user.email}</div>
+      </div>
+      <span className="rounded-md bg-surface-elevated border border-hairline-subtle px-2 py-0.5 text-micro uppercase text-ink-secondary shrink-0">
+        {user.role.replace(/_/g, " ")}
+      </span>
+      {pending ? (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-state-pending-bg border border-state-pending/40 px-2.5 py-0.5 text-micro uppercase text-state-pending shrink-0">
+          <Clock size={12} /> Pending
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-state-verified-bg border border-state-verified/40 px-2.5 py-0.5 text-micro uppercase text-state-verified shrink-0">
+          <CheckCircle2 size={12} /> Active
+        </span>
+      )}
+      <span className="hidden sm:inline text-caption text-ink-muted shrink-0 w-28 text-right">
+        {pending
+          ? `invited ${new Date(user.created_at).toLocaleDateString()}`
+          : new Date(user.accepted_at!).toLocaleDateString()}
+      </span>
+    </li>
   );
 }
 
@@ -234,7 +235,7 @@ function Field({
 }) {
   return (
     <div className={className}>
-      <label className="block text-xs uppercase tracking-wide text-slate-400 mb-1">{label}</label>
+      <label className="block text-micro uppercase text-ink-tertiary mb-1">{label}</label>
       {children}
     </div>
   );

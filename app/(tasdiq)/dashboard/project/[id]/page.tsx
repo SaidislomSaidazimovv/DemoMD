@@ -1,16 +1,42 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
-import { FraudCheckList, FraudScoreBar, StateBadge, VerdictPill } from "@/components/ui";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  XCircle,
+  Package,
+  Banknote,
+  LinkIcon,
+  Flag,
+  AlertTriangle,
+  MapPin,
+  KeyRound,
+  FileText,
+  Camera,
+  ShieldCheck,
+} from "lucide-react";
+import {
+  StateBadge,
+  VerdictPill,
+  FraudScoreBar,
+  FraudCheckList,
+  Card,
+  CardContent,
+  Button,
+  EmptyState,
+} from "@/components/ui";
 import { StateStepper } from "@/components/state-stepper";
 import { ToastViewport, useToasts } from "@/components/toast";
 import { useRequireRole } from "@/lib/hooks";
 import { verifyChain } from "@/lib/ledger";
 import { generateTranchePack, transitionWorkflow } from "@/lib/actions";
 import { createClient } from "@/lib/supabase/browser";
-import type { LedgerEvent, Media, Workflow } from "@/lib/types";
+import type { LedgerEvent, Media, Workflow, WorkflowState } from "@/lib/types";
+
+type Tab = "evidence" | "details" | "audit";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
@@ -26,14 +52,12 @@ export default function ProjectDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [rejectFormOpen, setRejectFormOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [tab, setTab] = useState<Tab>("evidence");
+  const [copied, setCopied] = useState(false);
   const { toasts, push: pushToast } = useToasts();
 
   async function refresh() {
     const supabase = createClient();
-    // Note: the hash chain is ORG-wide (every event's prev_hash points to the
-    // previous event in the entire org, not just this workflow). So verification
-    // must walk the full org chain. RLS keeps the query scoped to the caller's
-    // org automatically. The UI timeline still shows only this workflow's events.
     const [
       { data: wf },
       { data: ms },
@@ -114,7 +138,6 @@ export default function ProjectDetailPage() {
     try {
       const result = await generateTranchePack({ workflow_id: workflow.id });
       if (result.downloadUrl) {
-        // Trigger the browser download automatically.
         window.location.href = result.downloadUrl;
       } else {
         setError("Pack generated but no download URL returned.");
@@ -126,9 +149,6 @@ export default function ProjectDetailPage() {
     }
   }
 
-  // Final lifecycle step: the bank confirms (or refuses) tranche release.
-  // Transitions EXPORTED → BANK_ACCEPTED | BANK_REJECTED. On accept, the
-  // server also emits a `tranche_released` ledger event (done in /api/transition).
   async function bankAct(kind: "accept" | "reject") {
     if (!workflow) return;
     if (kind === "reject" && !rejectReason.trim()) {
@@ -155,95 +175,84 @@ export default function ProjectDetailPage() {
     }
   }
 
+  async function copyCaptureLink() {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/capture`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      setError("Could not copy link — please share /capture manually.");
+    }
+  }
+
   if (loading || !session) {
-    return <main className="min-h-screen p-10 text-slate-500">Loading…</main>;
+    return <div className="p-10 text-ink-muted">Loading…</div>;
   }
   if (!workflow) {
     return (
-      <main className="min-h-screen p-10 space-y-4">
-        <Link href="/dashboard" className="text-sm text-slate-400">
-          ← Back
+      <div className="p-10 space-y-4">
+        <Link href="/dashboard" className="text-caption text-ink-tertiary hover:text-ink inline-flex items-center gap-1">
+          <ArrowLeft size={14} /> Back
         </Link>
-        <p>Project not found.</p>
-      </main>
+        <p className="text-body">Project not found.</p>
+      </div>
     );
   }
 
   const orderedMedia = media.slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
   const orderedEvents = events.slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
-  const canApprove = ["AUTO_VERIFIED", "FLAGGED", "CAPTURED"].includes(workflow.current_state);
-  const canReject = ["AUTO_VERIFIED", "FLAGGED", "CAPTURED"].includes(workflow.current_state);
-  const canExport = workflow.current_state === "APPROVED";
-  const canBankAccept = workflow.current_state === "EXPORTED";
-  const canBankReject = workflow.current_state === "EXPORTED";
 
   return (
-    <main className="min-h-screen p-6 sm:p-10 max-w-6xl mx-auto space-y-6">
-      <Link href="/dashboard" className="text-sm text-slate-400 hover:text-slate-200">
-        ← Back to dashboard
+    <div className="p-6 sm:p-10 max-w-5xl mx-auto space-y-6 fade-up">
+      <Link
+        href="/dashboard"
+        className="inline-flex items-center gap-1.5 text-caption text-ink-tertiary hover:text-ink"
+      >
+        <ArrowLeft size={14} /> Back to projects
       </Link>
 
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="text-xs text-slate-500">{workflow.reference_id}</div>
-          <h1 className="text-3xl font-bold">{workflow.reference_label}</h1>
-          <p className="text-sm text-slate-400">
-            {workflow.meta.developer_name} · {workflow.meta.address}
-          </p>
-          <div className="mt-2 flex items-center gap-3">
-            <StateBadge state={workflow.current_state} />
-            <span className="text-xs text-slate-500">
-              Tranche {workflow.meta.current_tranche}/{workflow.meta.total_tranches} ·{" "}
-              {workflow.meta.milestone_description}
-            </span>
-          </div>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => act("approve")}
-            disabled={!canApprove || busy !== null}
-            className="rounded bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            ✅ Approve
-          </button>
-          <button
-            onClick={() => act("reject")}
-            disabled={!canReject || busy !== null}
-            className="rounded bg-rose-600 hover:bg-rose-500 px-4 py-2 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            ❌ Reject
-          </button>
-          <button
-            onClick={exportPack}
-            disabled={!canExport || busy !== null}
-            className="rounded bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            📦 Generate tranche pack
-          </button>
-          <button
-            onClick={() => bankAct("accept")}
-            disabled={!canBankAccept || busy !== null}
-            className="rounded bg-emerald-700 hover:bg-emerald-600 px-4 py-2 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            🏦 Mark as bank accepted
-          </button>
-          <button
-            onClick={() => {
-              setError(null);
-              setRejectFormOpen((v) => !v);
-            }}
-            disabled={!canBankReject || busy !== null}
-            className="rounded bg-rose-700 hover:bg-rose-600 px-4 py-2 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            🏦 Mark as bank rejected
-          </button>
+      <header className="space-y-3">
+        <div className="text-micro uppercase text-ink-muted">{workflow.reference_id}</div>
+        <h1 className="text-heading-1 text-ink">{workflow.reference_label}</h1>
+        <p className="text-body text-ink-tertiary">
+          {workflow.meta.developer_name} · {workflow.meta.address}
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <StateBadge state={workflow.current_state} />
+          <span className="text-caption text-ink-tertiary">
+            Tranche {workflow.meta.current_tranche}/{workflow.meta.total_tranches} ·{" "}
+            {workflow.meta.milestone_description}
+          </span>
         </div>
       </header>
 
+      <Card>
+        <CardContent className="py-5">
+          <div className="text-micro uppercase text-ink-muted mb-3">Workflow state</div>
+          <StateStepper state={workflow.current_state} />
+        </CardContent>
+      </Card>
+
+      {/* Contextual action buttons per spec's state → button table */}
+      <ContextualActions
+        state={workflow.current_state}
+        busy={busy}
+        copied={copied}
+        onApprove={() => act("approve")}
+        onReject={() => act("reject")}
+        onExport={exportPack}
+        onBankAccept={() => bankAct("accept")}
+        onBankReject={() => {
+          setError(null);
+          setRejectFormOpen((v) => !v);
+        }}
+        onCopyLink={copyCaptureLink}
+      />
+
       {rejectFormOpen && (
-        <section className="rounded-lg border border-rose-700/50 bg-rose-900/10 p-4 space-y-3">
-          <div>
-            <label className="block text-xs uppercase tracking-wide text-rose-300 mb-1">
+        <Card className="border-state-flagged/40 bg-state-flagged-bg">
+          <CardContent className="py-4 space-y-3">
+            <label className="block text-micro uppercase text-state-flagged">
               Rejection reason (required)
             </label>
             <textarea
@@ -251,132 +260,470 @@ export default function ProjectDetailPage() {
               onChange={(e) => setRejectReason(e.target.value)}
               rows={3}
               placeholder="e.g. Photo 2 off-site — disbursement held."
-              className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-500"
+              className="w-full rounded-md border border-hairline-strong bg-surface-subtle px-3 py-2 text-body text-ink focus:outline-none focus:ring-2 focus:ring-state-flagged/50"
             />
-          </div>
-          <div className="flex gap-2 justify-end">
-            <button
-              onClick={() => {
-                setRejectFormOpen(false);
-                setRejectReason("");
-                setError(null);
-              }}
-              disabled={busy !== null}
-              className="rounded border border-slate-700 bg-slate-900 hover:bg-slate-800 px-3 py-1.5 text-sm"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => bankAct("reject")}
-              disabled={!rejectReason.trim() || busy !== null}
-              className="rounded bg-rose-600 hover:bg-rose-500 px-3 py-1.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {busy === "bank_reject" ? "Rejecting…" : "Confirm bank rejection"}
-            </button>
-          </div>
-        </section>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setRejectFormOpen(false);
+                  setRejectReason("");
+                  setError(null);
+                }}
+                disabled={busy !== null}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => bankAct("reject")}
+                disabled={!rejectReason.trim() || busy !== null}
+                loading={busy === "bank_reject"}
+              >
+                Confirm bank rejection
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {error && (
-        <div className="rounded border border-rose-700/50 bg-rose-900/20 px-3 py-2 text-sm text-rose-300">
+        <div className="rounded-md border border-state-flagged/40 bg-state-flagged-bg px-4 py-3 text-body text-state-flagged">
           {error}
         </div>
       )}
 
-      <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-5">
-        <div className="text-xs uppercase tracking-wide text-slate-500 mb-3">
-          Workflow state
+      {/* Tabs */}
+      <div>
+        <div className="border-b border-hairline-subtle flex items-center gap-1">
+          <TabButton active={tab === "evidence"} onClick={() => setTab("evidence")} icon={<Camera size={16} />}>
+            Evidence
+            <span className="ml-1.5 text-micro text-ink-muted">({orderedMedia.length})</span>
+          </TabButton>
+          <TabButton active={tab === "details"} onClick={() => setTab("details")} icon={<FileText size={16} />}>
+            Details
+          </TabButton>
+          <TabButton active={tab === "audit"} onClick={() => setTab("audit")} icon={<ShieldCheck size={16} />}>
+            Audit trail
+            <span className="ml-1.5 text-micro text-ink-muted">({orderedEvents.length})</span>
+          </TabButton>
         </div>
-        <StateStepper state={workflow.current_state} />
-      </section>
 
-      <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-4 grid sm:grid-cols-3 gap-4 text-sm">
-        <div>
-          <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Loan</div>
-          <div className="font-mono text-slate-200">
-            {workflow.meta.loan_amount.toLocaleString()} {workflow.meta.loan_currency}
-          </div>
-        </div>
-        <div>
-          <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Geofence</div>
-          <div className="font-mono text-slate-200">
-            {workflow.meta.coordinates.lat.toFixed(4)}, {workflow.meta.coordinates.lng.toFixed(4)} · r{" "}
-            {workflow.meta.geofence_radius_meters}m
-          </div>
-        </div>
-        <div>
-          <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Ledger integrity</div>
-          {chainValid === null ? (
-            <div className="text-slate-500 text-xs">verifying…</div>
-          ) : chainValid ? (
-            <div className="text-emerald-300 text-xs">
-              ✓ {events.length} events, chain valid
-              {anchor && (
-                <div className="text-slate-500 font-mono truncate">anchor: {anchor.slice(0, 32)}…</div>
-              )}
-            </div>
-          ) : (
-            <div className="text-rose-300 text-xs">⚠ chain broken</div>
+        <div className="pt-6">
+          {tab === "evidence" && (
+            <EvidenceTab media={orderedMedia} />
+          )}
+          {tab === "details" && (
+            <DetailsTab workflow={workflow} />
+          )}
+          {tab === "audit" && (
+            <AuditTab
+              events={orderedEvents}
+              chainValid={chainValid}
+              anchor={anchor}
+            />
           )}
         </div>
-      </section>
-
-      <section>
-        <h2 className="text-lg font-semibold mb-3">
-          Evidence timeline{" "}
-          <span className="text-sm font-normal text-slate-500">({orderedMedia.length})</span>
-        </h2>
-        {orderedMedia.length === 0 ? (
-          <div className="rounded border border-dashed border-slate-700 p-6 text-sm text-slate-400">
-            No evidence yet. An inspector can submit via{" "}
-            <Link href="/capture" className="underline">
-              /capture
-            </Link>
-            , or simulate one from{" "}
-            <Link href="/demo" className="underline">
-              /demo
-            </Link>
-            .
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {orderedMedia.map((m) => (
-              <EvidenceCard key={m.id} media={m} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section>
-        <h2 className="text-lg font-semibold mb-3">
-          Ledger events{" "}
-          <span className="text-sm font-normal text-slate-500">({orderedEvents.length})</span>
-        </h2>
-        <ol className="rounded border border-slate-800 divide-y divide-slate-800 text-sm bg-slate-900/40">
-          {orderedEvents.map((l) => (
-            <li key={l.id} className="p-3 flex items-start justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <div className="font-medium">{l.event_type}</div>
-                <div className="text-xs text-slate-500 font-mono truncate">
-                  actor: {l.actor_id ?? "system"} · {JSON.stringify(l.payload)}
-                </div>
-                <div className="text-[10px] text-slate-600 font-mono mt-0.5 truncate">
-                  hash: {l.hash.slice(0, 24)}… · prev: {l.prev_hash?.slice(0, 16) ?? "GENESIS"}
-                </div>
-              </div>
-              <div className="text-xs text-slate-500 whitespace-nowrap">
-                {new Date(l.created_at).toLocaleString()}
-              </div>
-            </li>
-          ))}
-        </ol>
-      </section>
+      </div>
 
       <ToastViewport toasts={toasts} />
-    </main>
+    </div>
   );
 }
 
+// ============================================================
+// Contextual actions — shows only the buttons relevant to current state
+// ============================================================
+function ContextualActions({
+  state,
+  busy,
+  copied,
+  onApprove,
+  onReject,
+  onExport,
+  onBankAccept,
+  onBankReject,
+  onCopyLink,
+}: {
+  state: WorkflowState;
+  busy: string | null;
+  copied: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+  onExport: () => void;
+  onBankAccept: () => void;
+  onBankReject: () => void;
+  onCopyLink: () => void;
+}) {
+  // Map per TASDIQ_UI_REDESIGN.md Screen 4 Fix 1
+  if (state === "EVIDENCE_REQUESTED") {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <Button variant="primary" leftIcon={<LinkIcon size={16} />} onClick={onCopyLink}>
+          {copied ? "Link copied ✓" : "Share capture link with inspector"}
+        </Button>
+      </div>
+    );
+  }
+  if (state === "CAPTURED") {
+    return (
+      <Card>
+        <CardContent className="py-4 text-body text-ink-tertiary">
+          Evidence received — the fraud pipeline is auto-verifying. Result will appear here
+          within seconds.
+        </CardContent>
+      </Card>
+    );
+  }
+  if (state === "AUTO_VERIFIED") {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="primary"
+          leftIcon={<CheckCircle2 size={16} />}
+          onClick={onApprove}
+          disabled={busy !== null}
+          loading={busy === "approve"}
+        >
+          Approve
+        </Button>
+        <Button
+          variant="secondary"
+          leftIcon={<Flag size={16} />}
+          onClick={onReject}
+          disabled={busy !== null}
+          loading={busy === "reject"}
+        >
+          Flag for review
+        </Button>
+      </div>
+    );
+  }
+  if (state === "FLAGGED") {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="primary"
+          leftIcon={<CheckCircle2 size={16} />}
+          onClick={onApprove}
+          disabled={busy !== null}
+          loading={busy === "approve"}
+        >
+          Approve with override
+        </Button>
+        <Button
+          variant="danger"
+          leftIcon={<XCircle size={16} />}
+          onClick={onReject}
+          disabled={busy !== null}
+          loading={busy === "reject"}
+        >
+          Reject
+        </Button>
+      </div>
+    );
+  }
+  if (state === "APPROVED") {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="primary"
+          leftIcon={<Package size={16} />}
+          onClick={onExport}
+          disabled={busy !== null}
+          loading={busy === "export"}
+        >
+          Generate tranche pack
+        </Button>
+      </div>
+    );
+  }
+  if (state === "EXPORTED") {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="primary"
+          leftIcon={<Banknote size={16} />}
+          onClick={onBankAccept}
+          disabled={busy !== null}
+          loading={busy === "bank_accept"}
+        >
+          Mark as bank accepted
+        </Button>
+        <Button
+          variant="danger"
+          leftIcon={<XCircle size={16} />}
+          onClick={onBankReject}
+          disabled={busy !== null}
+        >
+          Mark as bank rejected
+        </Button>
+      </div>
+    );
+  }
+  // Terminal states: BANK_ACCEPTED / BANK_REJECTED / REJECTED → show outcome card, no actions
+  if (state === "BANK_ACCEPTED") {
+    return (
+      <Card className="border-state-verified/40 bg-state-verified-bg">
+        <CardContent className="py-4 flex items-center gap-3">
+          <CheckCircle2 className="text-state-verified" size={22} />
+          <div>
+            <div className="text-body font-semibold text-ink">Tranche released</div>
+            <div className="text-caption text-ink-tertiary">
+              Bank confirmed disbursement. Workflow is closed.
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+  if (state === "BANK_REJECTED" || state === "REJECTED") {
+    return (
+      <Card className="border-state-flagged/40 bg-state-flagged-bg">
+        <CardContent className="py-4 flex items-center gap-3">
+          <XCircle className="text-state-flagged" size={22} />
+          <div>
+            <div className="text-body font-semibold text-ink">
+              {state === "BANK_REJECTED" ? "Bank rejected tranche" : "Milestone rejected"}
+            </div>
+            <div className="text-caption text-ink-tertiary">
+              Workflow is closed. No further action available.
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+  return null; // DRAFT — no buttons in this demo
+}
+
+// ============================================================
+// Tab button
+// ============================================================
+function TabButton({
+  active,
+  onClick,
+  icon,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`
+        inline-flex items-center gap-2 px-4 py-3 -mb-px border-b-2 transition-colors duration-fast
+        ${active
+          ? "border-accent text-ink"
+          : "border-transparent text-ink-tertiary hover:text-ink"}
+      `}
+    >
+      {icon}
+      <span className="text-body font-medium">{children}</span>
+    </button>
+  );
+}
+
+// ============================================================
+// Evidence tab
+// ============================================================
+function EvidenceTab({ media }: { media: Media[] }) {
+  if (media.length === 0) {
+    return (
+      <EmptyState
+        icon={<Camera />}
+        title="No evidence yet"
+        description="An inspector can submit via /capture, or you can simulate one from /demo."
+      />
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {media.map((m) => (
+        <EvidenceCard key={m.id} media={m} />
+      ))}
+    </div>
+  );
+}
+
+// ============================================================
+// Details tab
+// ============================================================
+function DetailsTab({ workflow }: { workflow: Workflow }) {
+  const { meta } = workflow;
+  return (
+    <div className="grid sm:grid-cols-2 gap-4">
+      <DetailCard
+        icon={<Banknote className="text-ink-muted" size={18} />}
+        label="Loan"
+        value={`${meta.loan_amount.toLocaleString()} ${meta.loan_currency}`}
+        sub={`Tranche ${meta.current_tranche} of ${meta.total_tranches}`}
+      />
+      <DetailCard
+        icon={<MapPin className="text-ink-muted" size={18} />}
+        label="Geofence"
+        value={`${meta.coordinates.lat.toFixed(4)}, ${meta.coordinates.lng.toFixed(4)}`}
+        sub={`radius ${meta.geofence_radius_meters} m`}
+        mono
+      />
+      <DetailCard
+        icon={<FileText className="text-ink-muted" size={18} />}
+        label="Milestone"
+        value={meta.milestone_description}
+        sub={`Expected ${meta.expected_completion}`}
+      />
+      <DetailCard
+        icon={<KeyRound className="text-ink-muted" size={18} />}
+        label="Challenge code"
+        value={meta.challenge_code}
+        sub={`Issued ${new Date(meta.challenge_issued_at).toLocaleString()}`}
+        mono
+      />
+      <Card className="sm:col-span-2">
+        <CardContent className="py-4">
+          <div className="text-micro uppercase text-ink-muted mb-1">Developer</div>
+          <div className="text-body text-ink">{meta.developer_name}</div>
+          <div className="text-caption text-ink-tertiary mt-0.5">{meta.address}</div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function DetailCard({
+  icon,
+  label,
+  value,
+  sub,
+  mono = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub?: string;
+  mono?: boolean;
+}) {
+  return (
+    <Card>
+      <CardContent className="py-4">
+        <div className="flex items-center gap-2 text-micro uppercase text-ink-muted mb-1.5">
+          {icon}
+          {label}
+        </div>
+        <div className={`text-body text-ink ${mono ? "font-mono" : ""}`}>{value}</div>
+        {sub && <div className="text-caption text-ink-tertiary mt-0.5">{sub}</div>}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================
+// Audit tab — chain integrity indicator + event timeline
+// ============================================================
+function AuditTab({
+  events,
+  chainValid,
+  anchor,
+}: {
+  events: LedgerEvent[];
+  chainValid: boolean | null;
+  anchor: string | null;
+}) {
+  return (
+    <div className="space-y-4">
+      {/* Integrity indicator */}
+      <Card>
+        <CardContent className="py-4 flex items-start gap-3">
+          <div
+            className={`shrink-0 rounded-md p-2 ${
+              chainValid === null
+                ? "bg-surface-elevated text-ink-muted"
+                : chainValid
+                  ? "bg-state-verified-bg text-state-verified"
+                  : "bg-state-flagged-bg text-state-flagged"
+            }`}
+          >
+            <ShieldCheck size={18} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-body font-semibold text-ink">
+              Ledger integrity
+            </div>
+            {chainValid === null ? (
+              <div className="text-caption text-ink-tertiary">verifying chain…</div>
+            ) : chainValid ? (
+              <>
+                <div className="text-caption text-state-verified">
+                  ✓ chain valid · {events.length} events in this workflow
+                </div>
+                {anchor && (
+                  <div className="text-micro text-ink-muted font-mono mt-1 truncate">
+                    anchor: {anchor.slice(0, 40)}…
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-caption text-state-flagged">
+                ⚠ chain broken — export blocked until investigated
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {events.length === 0 ? (
+        <EmptyState
+          icon={<ShieldCheck />}
+          title="No events yet"
+          description="Ledger entries will appear here as the workflow progresses."
+        />
+      ) : (
+        <Card>
+          <ol className="divide-y divide-hairline-subtle">
+            {events.map((l) => (
+              <li key={l.id} className="px-6 py-4 flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="text-body font-medium text-ink">
+                    {l.event_type.replace(/_/g, " ")}
+                  </div>
+                  <div className="text-caption text-ink-tertiary font-mono truncate mt-0.5">
+                    {l.actor_id ? `actor ${l.actor_id.slice(0, 8)}…` : "system"}
+                  </div>
+                  <details className="mt-2">
+                    <summary className="text-micro text-ink-muted cursor-pointer hover:text-ink-tertiary uppercase">
+                      Technical details
+                    </summary>
+                    <div className="mt-2 space-y-1 text-micro font-mono text-ink-muted">
+                      <div className="truncate">
+                        hash: {l.hash.slice(0, 32)}…
+                      </div>
+                      <div className="truncate">
+                        prev: {l.prev_hash?.slice(0, 32) ?? "GENESIS"}
+                      </div>
+                      <pre className="bg-surface-subtle rounded p-2 text-micro overflow-x-auto">
+                        {JSON.stringify(l.payload, null, 2)}
+                      </pre>
+                    </div>
+                  </details>
+                </div>
+                <div className="text-caption text-ink-tertiary whitespace-nowrap">
+                  {new Date(l.created_at).toLocaleString()}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Evidence card — restyled for Day 6 in the same pass
+// ============================================================
 function EvidenceCard({ media }: { media: Media }) {
   const r = media.meta.fraud_result;
   const verified = r.verdict === "VERIFIED";
@@ -386,8 +733,6 @@ function EvidenceCard({ media }: { media: Media }) {
 
   const videoPath = media.meta.video_storage_path;
 
-  // Fetch a fresh signed URL for the video the first time the card is expanded.
-  // Evidence bucket is private + org-scoped; Supabase returns a 1-hour signed URL.
   useEffect(() => {
     if (!open || !videoPath || videoUrl) return;
     const supabase = createClient();
@@ -401,100 +746,151 @@ function EvidenceCard({ media }: { media: Media }) {
   }, [open, videoPath, videoUrl]);
 
   return (
-    <div
-      className={`rounded-lg border p-4 ${
+    <Card
+      className={
         verified
-          ? "border-emerald-700/50 bg-emerald-900/10"
-          : "border-rose-700/50 bg-rose-900/10"
-      }`}
+          ? "border-state-verified/30"
+          : "border-state-flagged/30"
+      }
     >
-      <div className="flex items-center gap-4">
-        {media.meta.data_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={media.meta.data_url}
-            alt="evidence"
-            className="w-16 h-16 object-cover rounded border border-slate-700"
-          />
-        ) : (
-          <span className="text-4xl">{media.meta.thumbnail_emoji ?? "📷"}</span>
-        )}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3">
-            <VerdictPill verdict={r.verdict} />
-            <span className="font-mono text-sm text-slate-300">{r.aggregate_score.toFixed(2)}</span>
-            <span className="text-xs text-slate-500">
-              source: <span className="font-mono">{media.meta.source}</span>
-            </span>
-            {videoPath && (
-              <span className="rounded-full bg-sky-900/40 border border-sky-700/40 px-2 py-0.5 text-[10px] text-sky-200">
-                🎥 video
-              </span>
-            )}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">
-            {new Date(media.created_at).toLocaleString()} · sha256: {media.sha256.slice(0, 20)}…
-          </div>
-        </div>
-        <button
-          onClick={() => setOpen((v) => !v)}
-          className="text-xs text-slate-400 hover:text-slate-200"
-        >
-          {open ? "Hide" : "Details"}
-        </button>
-      </div>
-
-      {open && (
-        <div className="mt-4 space-y-3">
-          {videoPath && (
-            <div className="rounded-md border border-slate-800 bg-slate-950/50 p-2">
-              <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
-                15-second site video
-              </div>
-              {videoErr ? (
-                <div className="text-xs text-rose-300">video unavailable: {videoErr}</div>
-              ) : videoUrl ? (
-                // eslint-disable-next-line jsx-a11y/media-has-caption
-                <video
-                  controls
-                  preload="metadata"
-                  src={videoUrl}
-                  className="w-full max-h-64 rounded bg-black"
-                />
-              ) : (
-                <div className="text-xs text-slate-500">loading video…</div>
-              )}
-              {media.meta.video_bytes != null && (
-                <div className="text-[10px] text-slate-500 font-mono mt-1">
-                  {(media.meta.video_bytes / 1024).toFixed(0)} KB ·{" "}
-                  {media.meta.video_mime_type ?? "video"}
-                </div>
-              )}
+      <CardContent className="py-4">
+        <div className="flex items-center gap-4">
+          {media.meta.data_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={media.meta.data_url}
+              alt="evidence"
+              className="w-14 h-14 object-cover rounded border border-hairline-subtle shrink-0"
+            />
+          ) : (
+            <div className="w-14 h-14 rounded bg-surface-elevated flex items-center justify-center text-2xl shrink-0">
+              {media.meta.thumbnail_emoji ?? "📷"}
             </div>
           )}
-          <FraudScoreBar score={r.aggregate_score} />
-          <FraudCheckList result={r} />
-          <EvidenceGpsMap
-            lat={media.meta.gps.lat}
-            lng={media.meta.gps.lng}
-            accuracy={media.meta.gps.accuracy}
-          />
-          <SensorVariancePanel
-            motionVariance={media.meta.motion_variance}
-            gyroVariance={media.meta.gyro_variance}
-            lightingVariance={media.meta.lighting_variance}
-            frameChangeAvg={media.meta.frame_change_avg}
-            frameSamples={media.meta.frame_dhashes?.length}
-          />
-          <div className="text-xs text-slate-500 font-mono">storage: {media.storage_path}</div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <VerdictPill verdict={r.verdict} />
+              <span className="font-mono text-caption text-ink-secondary">
+                {r.aggregate_score.toFixed(2)}
+              </span>
+              <span className="text-micro uppercase text-ink-muted">
+                {media.meta.source}
+              </span>
+              {videoPath && (
+                <span className="rounded-full bg-state-info-bg border border-state-info/30 px-2 py-0.5 text-micro text-state-info uppercase">
+                  🎥 video
+                </span>
+              )}
+              {media.meta.ai_narration && (
+                <span className="rounded-full bg-state-flagged-bg border border-state-flagged/30 px-2 py-0.5 text-micro text-state-flagged uppercase">
+                  AI review
+                </span>
+              )}
+            </div>
+            <div className="text-caption text-ink-tertiary mt-1 truncate">
+              {new Date(media.created_at).toLocaleString()} · sha256: {media.sha256.slice(0, 20)}…
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? "Hide" : "Details"}
+          </Button>
         </div>
-      )}
+
+        {open && (
+          <div className="mt-5 space-y-3 pt-5 border-t border-hairline-subtle">
+            {media.meta.ai_narration && (
+              <AiReviewCallout
+                text={media.meta.ai_narration}
+                model={media.meta.ai_narration_model}
+                when={media.meta.ai_narration_at}
+              />
+            )}
+            {videoPath && (
+              <div className="rounded-md border border-hairline-subtle bg-surface-subtle p-2">
+                <div className="text-micro uppercase text-ink-muted mb-1">
+                  15-second site video
+                </div>
+                {videoErr ? (
+                  <div className="text-caption text-state-flagged">
+                    video unavailable: {videoErr}
+                  </div>
+                ) : videoUrl ? (
+                  // eslint-disable-next-line jsx-a11y/media-has-caption
+                  <video
+                    controls
+                    preload="metadata"
+                    src={videoUrl}
+                    className="w-full max-h-64 rounded bg-black"
+                  />
+                ) : (
+                  <div className="text-caption text-ink-tertiary">loading video…</div>
+                )}
+                {media.meta.video_bytes != null && (
+                  <div className="text-micro text-ink-muted font-mono mt-1">
+                    {(media.meta.video_bytes / 1024).toFixed(0)} KB ·{" "}
+                    {media.meta.video_mime_type ?? "video"}
+                  </div>
+                )}
+              </div>
+            )}
+            <FraudScoreBar score={r.aggregate_score} />
+            <FraudCheckList result={r} />
+            <EvidenceGpsMap
+              lat={media.meta.gps.lat}
+              lng={media.meta.gps.lng}
+              accuracy={media.meta.gps.accuracy}
+            />
+            <SensorVariancePanel
+              motionVariance={media.meta.motion_variance}
+              gyroVariance={media.meta.gyro_variance}
+              lightingVariance={media.meta.lighting_variance}
+              frameChangeAvg={media.meta.frame_change_avg}
+              frameSamples={media.meta.frame_dhashes?.length}
+            />
+            <div className="text-micro font-mono text-ink-muted">
+              storage: {media.storage_path}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// AI narration callout (shown when /api/ai/narrate-flag has written to meta)
+function AiReviewCallout({
+  text,
+  model,
+  when,
+}: {
+  text: string;
+  model?: string;
+  when?: string;
+}) {
+  return (
+    <div className="rounded-md border border-state-flagged/30 bg-state-flagged-bg p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <AlertTriangle size={14} className="text-state-flagged" />
+        <span className="text-micro uppercase text-state-flagged font-semibold">AI Review</span>
+        {when && (
+          <span className="text-micro text-ink-muted">
+            · {new Date(when).toLocaleTimeString()}
+          </span>
+        )}
+        {model && <span className="text-micro text-ink-muted font-mono">· {model}</span>}
+      </div>
+      <p className="text-body text-ink-secondary leading-relaxed">
+        &ldquo;{text}&rdquo;
+      </p>
     </div>
   );
 }
 
-// Small OpenStreetMap embed centered on the capture GPS. No API key required.
-// bbox chosen to show ~250 m of context around the pin.
+// Embedded OSM map pin at the capture GPS.
 function EvidenceGpsMap({
   lat,
   lng,
@@ -504,21 +900,19 @@ function EvidenceGpsMap({
   lng: number;
   accuracy: number;
 }) {
-  const pad = 0.0025; // ~250 m at Tashkent latitude
+  const pad = 0.0025;
   const bbox = `${lng - pad},${lat - pad},${lng + pad},${lat + pad}`;
   const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lng}`;
   const osmLink = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=18/${lat}/${lng}`;
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-950/50 p-2">
+    <div className="rounded-md border border-hairline-subtle bg-surface-subtle p-2">
       <div className="flex items-center justify-between mb-1">
-        <div className="text-[10px] uppercase tracking-wide text-slate-500">
-          Capture location
-        </div>
+        <div className="text-micro uppercase text-ink-muted">Capture location</div>
         <a
           href={osmLink}
           target="_blank"
           rel="noreferrer"
-          className="text-[10px] text-sky-400 hover:text-sky-300 underline"
+          className="text-micro text-state-info hover:underline"
         >
           open on OpenStreetMap
         </a>
@@ -526,19 +920,17 @@ function EvidenceGpsMap({
       <iframe
         title="capture location map"
         src={src}
-        className="w-full h-48 rounded border border-slate-800 bg-slate-900"
+        className="w-full h-48 rounded border border-hairline-subtle bg-surface-card"
         loading="lazy"
       />
-      <div className="text-[10px] text-slate-500 font-mono mt-1">
+      <div className="text-micro text-ink-muted font-mono mt-1">
         {lat.toFixed(5)}, {lng.toFixed(5)} · ±{accuracy.toFixed(0)} m
       </div>
     </div>
   );
 }
 
-// Inline SVG bar showing where each sensor's variance sits on a log scale
-// against the Layer 2 "human tremor" pass zone [0.001, 1.0]. Tells the story
-// "your capture is inside/outside the healthy hand-hold range" at a glance.
+// Sensor variance + optical-flow proxy panel.
 function SensorVariancePanel({
   motionVariance,
   gyroVariance,
@@ -553,26 +945,25 @@ function SensorVariancePanel({
   frameSamples: number | undefined;
 }) {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-950/50 p-3 space-y-2">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">
-        Sensor variance
-      </div>
+    <div className="rounded-md border border-hairline-subtle bg-surface-subtle p-3 space-y-2">
+      <div className="text-micro uppercase text-ink-muted">Sensor variance</div>
       <VarianceBar label="Accel (m/s²)" value={motionVariance} min={1e-5} max={10} passMin={0.001} passMax={1.0} />
       {gyroVariance != null && (
         <VarianceBar label="Gyro (°/s)" value={gyroVariance} min={1e-3} max={1e5} passMin={1} passMax={1e4} />
       )}
       <VarianceBar label="Lighting (luma)" value={lightingVariance} min={1e-4} max={1} passMin={0.02} passMax={1} />
       {frameChangeAvg != null && frameSamples != null && (
-        <div className="pt-1 border-t border-slate-800 flex items-center justify-between text-[10px]">
-          <span className="text-slate-400">
+        <div className="pt-1 border-t border-hairline-subtle flex items-center justify-between">
+          <span className="text-micro text-ink-tertiary">
             Optical-flow proxy ({frameSamples} frames)
           </span>
           <span
-            className={`font-mono ${
-              frameChangeAvg >= 3 ? "text-emerald-300" : "text-rose-300"
+            className={`font-mono text-caption ${
+              frameChangeAvg >= 3 ? "text-state-verified" : "text-state-flagged"
             }`}
           >
-            {frameChangeAvg.toFixed(1)} bits/pair · {frameChangeAvg >= 3 ? "scene moved" : "scene frozen"}
+            {frameChangeAvg.toFixed(1)} bits/pair ·{" "}
+            {frameChangeAvg >= 3 ? "scene moved" : "scene frozen"}
           </span>
         </div>
       )}
@@ -609,27 +1000,30 @@ function VarianceBar({
 
   return (
     <div>
-      <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+      <div className="flex items-center justify-between text-micro text-ink-tertiary mb-1">
         <span>{label}</span>
-        <span className={`font-mono ${inside ? "text-emerald-300" : "text-rose-300"}`}>
+        <span className={`font-mono ${inside ? "text-state-verified" : "text-state-flagged"}`}>
           {value.toExponential(2)}
         </span>
       </div>
-      <div className="relative h-3 rounded bg-slate-800 overflow-hidden">
+      <div className="relative h-3 rounded bg-surface-elevated overflow-hidden">
         <div
-          className="absolute top-0 bottom-0 bg-emerald-900/60 border-x border-emerald-700/50"
+          className="absolute top-0 bottom-0 bg-state-verified/20 border-x border-state-verified/40"
           style={{ left: `${passStart}%`, width: `${passEnd - passStart}%` }}
         />
         <div
-          className={`absolute top-0 bottom-0 w-0.5 ${inside ? "bg-emerald-300" : "bg-rose-400"}`}
+          className={`absolute top-0 bottom-0 w-0.5 ${inside ? "bg-state-verified" : "bg-state-flagged"}`}
           style={{ left: `calc(${markerPct}% - 1px)` }}
         />
       </div>
-      <div className="flex justify-between text-[9px] text-slate-600 font-mono mt-0.5">
+      <div className="flex justify-between text-micro text-ink-muted font-mono mt-0.5">
         <span>{min.toExponential(0)}</span>
-        <span className="text-slate-500">pass zone</span>
+        <span>pass zone</span>
         <span>{max.toExponential(0)}</span>
       </div>
     </div>
   );
 }
+
+// Unused import shim — keeps useMemo tree-shaken friendly in dev mode
+void useMemo;

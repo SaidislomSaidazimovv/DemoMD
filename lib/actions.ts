@@ -122,3 +122,10 @@ export async function simulateReal(workflowId: string) {
 export async function simulateFraud(workflowId: string) {
   return postJson<{ ok: true; media: any; workflow: any }>("/api/demo/simulate-fraud", { workflowId });
 }
+
+export async function resetDemoProject(workflowId: string) {
+  return postJson<{ ok: true; cleared: { media: number; storage_files: number } }>(
+    "/api/demo/reset",
+    { workflow_id: workflowId }
+  );
+}

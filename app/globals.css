@@ -2,12 +2,80 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =============================================================
+ * Tasdiq design tokens — per TASDIQ_UI_REDESIGN.md
+ * Consumed as CSS variables and mirrored into tailwind.config.ts
+ * so classes like `bg-surface-card` or `text-ink-muted` resolve.
+ * =============================================================
+ */
+:root {
+  /* Surfaces */
+  --bg-primary:     #0A0F1C;
+  --bg-surface:     #111827;
+  --bg-elevated:    #1F2937;
+  --bg-subtle:      #0F172A;
+
+  /* Borders */
+  --border-subtle:  #1F2937;
+  --border-strong:  #374151;
+
+  /* Text */
+  --text-primary:   #F9FAFB;
+  --text-secondary: #D1D5DB;
+  --text-tertiary:  #9CA3AF;
+  --text-muted:     #6B7280;
+
+  /* State */
+  --verified:       #10B981;
+  --verified-bg:    rgba(16, 185, 129, 0.10);
+  --pending:        #F59E0B;
+  --pending-bg:     rgba(245, 158, 11, 0.10);
+  --flagged:        #EF4444;
+  --flagged-bg:     rgba(239, 68, 68, 0.10);
+  --info:           #3B82F6;
+  --info-bg:        rgba(59, 130, 246, 0.10);
+
+  /* Brand — one accent per screen */
+  --accent:         #10B981;
+}
+
 html, body {
   height: 100%;
-  background: #0b1120;
-  color: #e2e8f0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
+
+/* =============================================================
+ * Motion tokens — honor prefers-reduced-motion
+ * =============================================================
+ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fade-up 200ms ease-out both; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.toast-in { animation: toast-in 180ms ease-out both; }
+
+@keyframes dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+  50%      { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+}
+.dot-pulse { animation: dot-pulse 1.8s ease-in-out infinite; }

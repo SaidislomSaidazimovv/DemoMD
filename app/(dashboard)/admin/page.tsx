@@ -1,17 +1,36 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { StateBadge } from "@/components/ui";
+import { useEffect, useState, useMemo } from "react";
+import {
+  Plus,
+  ArrowRight,
+  Building2,
+  TrendingUp,
+  ShieldCheck,
+  CheckCircle2,
+  Camera,
+  KeyRound,
+  AlertTriangle,
+  Package,
+  Banknote,
+  UserPlus,
+  ArrowRightLeft,
+  FileDown,
+} from "lucide-react";
 import { useRequireRole } from "@/lib/hooks";
 import { createClient } from "@/lib/supabase/browser";
 import { createWorkflow } from "@/lib/actions";
-import type { LedgerEvent, Organization, User, Workflow } from "@/lib/types";
+import { Kpi, Card, CardContent, Button, EmptyState } from "@/components/ui";
+import type { LedgerEvent, Organization, Workflow } from "@/lib/types";
 
-export default function AdminPage() {
+// Home screen per TASDIQ_UI_REDESIGN.md Screen 2.
+// Hero + 3 KPIs + humanized Recent activity feed.
+// Users list moved to /team. Raw ledger hashes moved to /audit.
+
+export default function AdminHomePage() {
   const { session, loading } = useRequireRole(["admin"]);
   const [org, setOrg] = useState<Organization | null>(null);
-  const [users, setUsers] = useState<User[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [events, setEvents] = useState<LedgerEvent[]>([]);
   const [showCreate, setShowCreate] = useState(false);
@@ -19,14 +38,12 @@ export default function AdminPage() {
 
   async function refresh() {
     const supabase = createClient();
-    const [{ data: orgs }, { data: u }, { data: w }, { data: e }] = await Promise.all([
+    const [{ data: orgs }, { data: w }, { data: e }] = await Promise.all([
       supabase.from("organizations").select("*").limit(1),
-      supabase.from("users").select("*"),
       supabase.from("workflows").select("*").order("updated_at", { ascending: false }),
-      supabase.from("ledger_events").select("*").order("created_at", { ascending: false }).limit(25),
+      supabase.from("ledger_events").select("*").order("created_at", { ascending: false }).limit(12),
     ]);
     setOrg(((orgs as Organization[]) ?? [])[0] ?? null);
-    setUsers((u as User[]) ?? []);
     setWorkflows((w as Workflow[]) ?? []);
     setEvents((e as LedgerEvent[]) ?? []);
   }
@@ -46,70 +63,100 @@ export default function AdminPage() {
     };
   }, [loading, session]);
 
-  async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    window.location.href = "/";
-  }
+  const stats = useMemo(() => {
+    const total = workflows.length;
+    const active = workflows.filter((w) =>
+      ["EVIDENCE_REQUESTED", "CAPTURED", "AUTO_VERIFIED", "FLAGGED", "APPROVED"].includes(w.current_state)
+    ).length;
+    const verified = workflows.filter((w) =>
+      ["AUTO_VERIFIED", "APPROVED", "EXPORTED", "BANK_ACCEPTED"].includes(w.current_state)
+    ).length;
+    const terminal = workflows.filter((w) =>
+      ["BANK_ACCEPTED", "BANK_REJECTED", "REJECTED"].includes(w.current_state)
+    ).length;
+    const verifiedLoanSum = workflows
+      .filter((w) => ["AUTO_VERIFIED", "APPROVED", "EXPORTED", "BANK_ACCEPTED"].includes(w.current_state))
+      .reduce((s, w) => s + (Number(w.meta?.loan_amount) || 0), 0);
+    const successRate = terminal > 0
+      ? Math.round(
+          (workflows.filter((w) => w.current_state === "BANK_ACCEPTED").length / terminal) * 100
+        )
+      : null;
+    return { total, active, verified, verifiedLoanSum, successRate };
+  }, [workflows]);
+
+  const awaiting = workflows.find((w) => w.current_state === "EVIDENCE_REQUESTED") ?? null;
 
   if (loading || !session) {
-    return <main className="min-h-screen p-10 text-slate-500">Loading…</main>;
+    return <div className="p-10 text-ink-muted">Loading…</div>;
   }
 
-  const empty = workflows.length === 0;
+  const greeting = greetingFor(new Date());
+  const firstName = (session.profile?.full_name ?? "").split(" ")[0] || "there";
 
   return (
-    <main className="min-h-screen p-6 sm:p-10 max-w-6xl mx-auto space-y-8">
-      <header className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-3xl font-bold">Admin Console</h1>
-          <p className="text-sm text-slate-400">
-            {org?.name ?? "—"} · signed in as {session.email}
-          </p>
-        </div>
-        <div className="flex gap-2 text-sm">
-          <Link href="/team" className="rounded border border-slate-700 bg-slate-800 px-3 py-1.5 hover:bg-slate-700">
-            Team
-          </Link>
-          <Link href="/dashboard" className="rounded border border-slate-700 bg-slate-800 px-3 py-1.5 hover:bg-slate-700">
-            Dashboard
-          </Link>
-          <Link href="/demo" className="rounded border border-slate-700 bg-slate-800 px-3 py-1.5 hover:bg-slate-700">
-            Demo
-          </Link>
-          <button onClick={handleSignOut} className="rounded border border-slate-700 bg-slate-800 px-3 py-1.5 hover:bg-slate-700">
-            Sign out
-          </button>
+    <div className="p-6 sm:p-10 max-w-6xl mx-auto space-y-10">
+      {/* Hero */}
+      <header className="space-y-3">
+        <h1 className="text-display text-ink">
+          {greeting}, {firstName}
+        </h1>
+        <p className="text-caption text-ink-tertiary uppercase">
+          {org?.name ?? "—"} · admin
+        </p>
+
+        {awaiting ? (
+          <Card className="mt-6">
+            <CardContent className="py-5 flex items-center gap-4">
+              <div className="shrink-0 rounded-md bg-state-pending-bg p-2.5 text-state-pending">
+                <Camera size={22} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-caption text-ink-tertiary">
+                  1 active project awaiting evidence
+                </div>
+                <div className="text-body font-semibold text-ink truncate">
+                  {awaiting.reference_label}
+                </div>
+              </div>
+              <Link href={`/dashboard/project/${awaiting.id}`}>
+                <Button variant="ghost" rightIcon={<ArrowRight size={16} />}>
+                  View
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        ) : stats.total === 0 ? null : (
+          <Card className="mt-6">
+            <CardContent className="py-5 flex items-center gap-4">
+              <div className="shrink-0 rounded-md bg-state-verified-bg p-2.5 text-state-verified">
+                <CheckCircle2 size={22} />
+              </div>
+              <div className="flex-1">
+                <div className="text-caption text-ink-tertiary">All caught up</div>
+                <div className="text-body text-ink">
+                  No projects are currently waiting for evidence.
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="pt-2">
+          <Button
+            variant="primary"
+            size="lg"
+            leftIcon={<Plus size={18} />}
+            onClick={() => setShowCreate(true)}
+          >
+            Create new project
+          </Button>
         </div>
       </header>
 
-      {empty && (
-        <section className="rounded-xl border border-amber-700/40 bg-amber-900/10 p-6">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <h2 className="text-lg font-semibold text-amber-200">Get started</h2>
-              <p className="text-sm text-amber-200/70 mt-1">
-                Create your first construction project to see the dashboard and demo in action.
-              </p>
-            </div>
-            <button
-              onClick={() => setShowCreate(true)}
-              className="rounded-md bg-amber-500 hover:bg-amber-400 px-4 py-2 text-sm font-semibold text-amber-950"
-            >
-              + Create project
-            </button>
-          </div>
-        </section>
-      )}
-
-      {!empty && (
-        <div>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="rounded-md bg-brand hover:bg-brand/90 px-4 py-2 text-sm font-semibold text-brand-fg"
-          >
-            + Create new project
-          </button>
+      {notice && (
+        <div className="rounded-md border border-state-verified/30 bg-state-verified-bg px-4 py-3 text-body text-state-verified">
+          {notice}
         </div>
       )}
 
@@ -124,109 +171,213 @@ export default function AdminPage() {
         />
       )}
 
-      {notice && (
-        <div className="rounded border border-emerald-700/50 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-300">
-          {notice}
-        </div>
-      )}
-
+      {/* KPIs */}
       <section>
-        <h2 className="text-lg font-semibold mb-3">
-          Projects <span className="text-sm font-normal text-slate-500">({workflows.length})</span>
-        </h2>
-        <div className="rounded-lg border border-slate-800 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-900 text-slate-400 text-xs uppercase tracking-wide">
-              <tr>
-                <th className="text-left p-3">Reference</th>
-                <th className="text-left p-3">Label</th>
-                <th className="text-left p-3">State</th>
-                <th className="text-right p-3">Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {workflows.map((w) => (
-                <tr key={w.id} className="border-t border-slate-800">
-                  <td className="p-3 font-mono text-xs">{w.reference_id}</td>
-                  <td className="p-3">
-                    <Link href={`/dashboard/project/${w.id}`} className="hover:underline">
-                      {w.reference_label}
-                    </Link>
-                  </td>
-                  <td className="p-3">
-                    <StateBadge state={w.current_state} />
-                  </td>
-                  <td className="p-3 text-right text-xs text-slate-500">
-                    {new Date(w.updated_at).toLocaleString()}
-                  </td>
-                </tr>
+        <h2 className="text-heading-2 text-ink mb-4">This quarter</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Kpi
+            label="Total projects"
+            value={stats.total}
+            sub={stats.active === 0 ? "none active" : `${stats.active} under verification`}
+            icon={<Building2 size={18} />}
+          />
+          <Kpi
+            label="Verified loan volume"
+            value={formatCurrency(stats.verifiedLoanSum)}
+            sub={stats.verified > 0 ? `${stats.verified} milestone${stats.verified === 1 ? "" : "s"} passed` : "nothing verified yet"}
+            tone={stats.verified > 0 ? "verified" : "neutral"}
+            icon={<Banknote size={18} />}
+          />
+          <Kpi
+            label="Success rate"
+            value={stats.successRate == null ? "—" : `${stats.successRate}%`}
+            sub={
+              stats.successRate == null
+                ? "no completed tranches yet"
+                : stats.successRate >= 90
+                  ? "above industry baseline"
+                  : "below industry baseline"
+            }
+            tone={stats.successRate != null && stats.successRate >= 90 ? "verified" : "neutral"}
+            icon={<TrendingUp size={18} />}
+          />
+        </div>
+      </section>
+
+      {/* Recent activity */}
+      <section>
+        <div className="flex items-baseline justify-between mb-4">
+          <h2 className="text-heading-2 text-ink">Recent activity</h2>
+          <Link
+            href="/audit"
+            className="text-caption text-ink-tertiary hover:text-ink inline-flex items-center gap-1"
+          >
+            View full audit trail <ArrowRight size={14} />
+          </Link>
+        </div>
+
+        {events.length === 0 ? (
+          <EmptyState
+            icon={<ShieldCheck />}
+            title="No activity yet"
+            description="Once you create a project and evidence starts flowing, every action will be listed here and sealed into the tamper-evident ledger."
+          />
+        ) : (
+          <Card>
+            <ul className="divide-y divide-hairline-subtle">
+              {events.map((ev) => (
+                <ActivityRow key={ev.id} event={ev} workflows={workflows} />
               ))}
-              {workflows.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="p-6 text-center text-sm text-slate-500">
-                    No projects yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+            </ul>
+          </Card>
+        )}
       </section>
-
-      <section>
-        <h2 className="text-lg font-semibold mb-3">
-          Users <span className="text-sm font-normal text-slate-500">({users.length})</span>
-        </h2>
-        <div className="rounded-lg border border-slate-800 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-900 text-slate-400 text-xs uppercase tracking-wide">
-              <tr>
-                <th className="text-left p-3">Name</th>
-                <th className="text-left p-3">Email</th>
-                <th className="text-left p-3">Role</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id} className="border-t border-slate-800">
-                  <td className="p-3">{u.full_name}</td>
-                  <td className="p-3 font-mono text-xs text-slate-300">{u.email}</td>
-                  <td className="p-3">
-                    <span className="rounded bg-slate-800 px-2 py-0.5 text-xs">{u.role}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section>
-        <h2 className="text-lg font-semibold mb-3">
-          Recent ledger events{" "}
-          <span className="text-sm font-normal text-slate-500">({events.length})</span>
-        </h2>
-        <ol className="rounded border border-slate-800 divide-y divide-slate-800 text-sm bg-slate-900/40">
-          {events.length === 0 && (
-            <li className="p-4 text-center text-slate-500">No events yet.</li>
-          )}
-          {events.map((l) => (
-            <li key={l.id} className="p-3 flex items-center justify-between gap-4">
-              <div className="min-w-0 flex-1">
-                <div className="font-medium">{l.event_type}</div>
-                <div className="text-[10px] text-slate-600 font-mono truncate">
-                  hash: {l.hash.slice(0, 24)}…
-                </div>
-              </div>
-              <div className="text-xs text-slate-500 whitespace-nowrap">
-                {new Date(l.created_at).toLocaleString()}
-              </div>
-            </li>
-          ))}
-        </ol>
-      </section>
-    </main>
+    </div>
   );
+}
+
+// ============================================================
+// Activity feed row — humanized from a raw ledger event
+// ============================================================
+function ActivityRow({ event, workflows }: { event: LedgerEvent; workflows: Workflow[] }) {
+  const { Icon, tone, title, detail } = humanize(event);
+  const project = workflows.find((w) => w.id === event.workflow_id);
+  const when = new Date(event.created_at);
+
+  return (
+    <li className="flex items-start gap-4 px-6 py-4">
+      <div className={`shrink-0 rounded-md p-2 ${tone}`}>
+        <Icon size={18} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-body text-ink">{title}</div>
+        <div className="text-caption text-ink-tertiary mt-0.5 truncate">
+          {project ? (
+            <Link href={`/dashboard/project/${project.id}`} className="hover:text-ink">
+              {project.reference_label}
+            </Link>
+          ) : (
+            <span>{event.workflow_id ? "project" : "organization-level"}</span>
+          )}
+          {detail && <span> · {detail}</span>}
+          <span> · {relativeTime(when)}</span>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function humanize(event: LedgerEvent): {
+  Icon: typeof Camera;
+  tone: string;
+  title: string;
+  detail?: string;
+} {
+  const payload = event.payload as Record<string, unknown>;
+  switch (event.event_type) {
+    case "workflow_created":
+      return {
+        Icon: Building2,
+        tone: "bg-state-info-bg text-state-info",
+        title: "Project created",
+      };
+    case "challenge_issued":
+      return {
+        Icon: KeyRound,
+        tone: "bg-state-pending-bg text-state-pending",
+        title: payload?.rotated ? "Challenge code rotated" : "Challenge code issued",
+      };
+    case "media_uploaded":
+      return {
+        Icon: Camera,
+        tone: "bg-state-info-bg text-state-info",
+        title: "Evidence uploaded",
+      };
+    case "evidence_captured": {
+      const verdict = (payload?.verdict as string) ?? "—";
+      return {
+        Icon: verdict === "VERIFIED" ? CheckCircle2 : AlertTriangle,
+        tone: verdict === "VERIFIED"
+          ? "bg-state-verified-bg text-state-verified"
+          : "bg-state-flagged-bg text-state-flagged",
+        title: verdict === "VERIFIED" ? "Evidence verified" : "Evidence flagged",
+        detail: typeof payload?.fraud_score === "number"
+          ? `score ${(payload.fraud_score as number).toFixed(2)}`
+          : undefined,
+      };
+    }
+    case "fraud_detected":
+      return {
+        Icon: AlertTriangle,
+        tone: "bg-state-flagged-bg text-state-flagged",
+        title: "Fraud detected",
+      };
+    case "state_changed": {
+      const to = (payload?.to as string) ?? "";
+      return {
+        Icon: ArrowRightLeft,
+        tone: "bg-surface-elevated text-ink-secondary",
+        title: `Moved to ${to.replace(/_/g, " ").toLowerCase()}`,
+      };
+    }
+    case "export_generated":
+      return {
+        Icon: Package,
+        tone: "bg-state-info-bg text-state-info",
+        title: "Tranche pack exported",
+      };
+    case "tranche_released":
+      return {
+        Icon: FileDown,
+        tone: "bg-state-verified-bg text-state-verified",
+        title: "Tranche released by bank",
+      };
+    case "user_invited":
+      return {
+        Icon: UserPlus,
+        tone: "bg-surface-elevated text-ink-secondary",
+        title: "Team member invited",
+      };
+    case "ai_narration_generated":
+      return {
+        Icon: ShieldCheck,
+        tone: "bg-state-info-bg text-state-info",
+        title: "AI review generated",
+      };
+    default:
+      return {
+        Icon: ShieldCheck,
+        tone: "bg-surface-elevated text-ink-muted",
+        title: event.event_type.replace(/_/g, " "),
+      };
+  }
+}
+
+function relativeTime(d: Date): string {
+  const diffMs = Date.now() - d.getTime();
+  const diffMin = Math.round(diffMs / 60_000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin} min ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr} hour${diffHr === 1 ? "" : "s"} ago`;
+  const diffDay = Math.round(diffHr / 24);
+  if (diffDay < 30) return `${diffDay} day${diffDay === 1 ? "" : "s"} ago`;
+  return d.toLocaleDateString();
+}
+
+function greetingFor(now: Date): string {
+  const h = now.getHours();
+  if (h < 5) return "Still up";
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+function formatCurrency(amount: number): string {
+  if (amount === 0) return "0 UZS";
+  if (amount >= 1_000_000_000) return `${(amount / 1_000_000_000).toFixed(1)}B UZS`;
+  if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(1)}M UZS`;
+  return `${amount.toLocaleString()} UZS`;
 }
 
 // ============================================================
@@ -289,10 +440,10 @@ function CreateProjectModal({
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-2xl rounded-xl border border-slate-700 bg-slate-950 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div className="w-full max-w-2xl rounded-xl border border-hairline-strong bg-surface-card p-6 space-y-4 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between">
-          <h3 className="text-xl font-bold">New construction project</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-200 text-sm">
+          <h3 className="text-heading-2 text-ink">New construction project</h3>
+          <button onClick={onClose} className="text-ink-tertiary hover:text-ink text-body">
             ✕
           </button>
         </div>
@@ -324,7 +475,7 @@ function CreateProjectModal({
               <button
                 type="button"
                 onClick={() => setChallenge(generateChallenge())}
-                className="rounded border border-slate-700 bg-slate-800 px-2 text-xs hover:bg-slate-700"
+                className="rounded border border-hairline-strong bg-surface-elevated px-2 text-caption hover:bg-surface-card"
               >
                 ↻
               </button>
@@ -339,37 +490,40 @@ function CreateProjectModal({
           <F label="Tranche #">
             <div className="flex gap-2">
               <input type="number" required value={tranche} onChange={(e) => setTranche(Number(e.target.value))} className="input font-mono w-20" />
-              <span className="self-center text-slate-400">of</span>
+              <span className="self-center text-ink-tertiary">of</span>
               <input type="number" required value={totalTranches} onChange={(e) => setTotalTranches(Number(e.target.value))} className="input font-mono w-20" />
             </div>
           </F>
 
           {error && (
-            <div className="sm:col-span-2 rounded border border-rose-700/50 bg-rose-900/20 px-3 py-2 text-sm text-rose-300">
+            <div className="sm:col-span-2 rounded border border-state-flagged/40 bg-state-flagged-bg px-3 py-2 text-caption text-state-flagged">
               {error}
             </div>
           )}
 
           <div className="sm:col-span-2 flex gap-2 mt-2">
-            <button type="button" onClick={onClose} className="flex-1 rounded border border-slate-700 bg-slate-900 py-2 text-sm">
-              Cancel
-            </button>
-            <button type="submit" disabled={busy} className="flex-[2] rounded bg-brand hover:bg-brand/90 py-2 text-sm font-semibold text-brand-fg disabled:opacity-50">
+            <Button type="button" onClick={onClose} className="flex-1">Cancel</Button>
+            <Button type="submit" variant="primary" loading={busy} className="flex-[2]">
               {busy ? "Creating…" : "Create project"}
-            </button>
+            </Button>
           </div>
         </form>
+        <style jsx>{`
+          :global(.input) {
+            width: 100%;
+            border-radius: 0.375rem;
+            border: 1px solid var(--border-strong);
+            background: var(--bg-subtle);
+            padding: 0.5rem 0.75rem;
+            font-size: 0.875rem;
+            color: var(--text-primary);
+          }
+          :global(.input:focus) {
+            outline: none;
+            border-color: var(--accent);
+          }
+        `}</style>
       </div>
-      <style jsx>{`
-        :global(.input) {
-          width: 100%;
-          border-radius: 0.375rem;
-          border: 1px solid rgb(51 65 85);
-          background: rgb(2 6 23);
-          padding: 0.5rem 0.75rem;
-          font-size: 0.875rem;
-        }
-      `}</style>
     </div>
   );
 }
@@ -385,7 +539,7 @@ function F({
 }) {
   return (
     <div className={className}>
-      <label className="block text-xs uppercase tracking-wide text-slate-400 mb-1">{label}</label>
+      <label className="block text-micro uppercase text-ink-tertiary mb-1">{label}</label>
       {children}
     </div>
   );

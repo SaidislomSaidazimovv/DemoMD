@@ -145,6 +145,20 @@ export interface MediaMeta {
   // = more scene change = less likely a static screen replay.
   frame_dhashes?: string[];
   frame_change_avg?: number;
+  // AI Narrator (AI_INTEGRATION_SPEC.md): Claude-authored plain-English
+  // explanation of why a capture was flagged. Written by /api/ai/narrate-flag.
+  ai_narration?: string;
+  ai_narration_model?: string;
+  ai_narration_at?: string;
+  // AI Progress Classifier (Layer 6): lightweight semantic verdict on whether
+  // the photo matches the claimed milestone. Written by /api/media/upload.
+  ai_progress?: {
+    verdict: "YES" | "NO" | "UNCLEAR";
+    visible: string;
+    reasoning: string;
+    score: number;
+    passed: boolean;
+  };
 }
 
 export interface FraudCheck {
