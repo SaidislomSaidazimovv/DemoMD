@@ -149,3 +149,17 @@ export async function seedButterflyTraining() {
     {}
   );
 }
+
+export async function generateButterflyReport(input: { quarter?: string } = {}) {
+  return postJson<{ ok: true; pack: any; downloadUrl: string | null }>(
+    "/api/butterfly/reports/generate",
+    input
+  );
+}
+
+export async function seedButterflyDeploy() {
+  return postJson<{ ok: true; workflow: any; created: boolean }>(
+    "/api/butterfly/deploy/seed",
+    {}
+  );
+}

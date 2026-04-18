@@ -1,0 +1,54 @@
+-- =============================================================
+-- OPTIONAL: seed a Butterfly demo workspace
+-- =============================================================
+-- Use this when you want to add Butterfly to your Supabase project WITHOUT
+-- going through a fresh /signup flow. Run AFTER migration-butterfly-transitions.sql.
+--
+-- Two paths, pick one:
+--   (A) Flip an existing Tasdiq org + its admin into Butterfly.
+--   (B) Create a brand-new Butterfly org and move your user into it.
+-- =============================================================
+
+-- =============================================================
+-- (A) FLIP AN EXISTING ORG
+-- =============================================================
+-- Run these UPDATEs in order. Replace the email with yours.
+--
+-- update public.organizations
+-- set product = 'butterfly'
+-- where id = (
+--   select org_id from public.users where email = 'me@example.com'
+-- );
+--
+-- update public.users
+-- set role = 'hr_admin'
+-- where email = 'me@example.com';
+
+-- =============================================================
+-- (B) CREATE A BRAND-NEW BUTTERFLY ORG AND MOVE YOUR USER INTO IT
+-- =============================================================
+-- Replace 'me@example.com' and the org name/slug.
+-- This preserves your Tasdiq org — run step B3 to point yourself at
+-- the new Butterfly org.
+--
+-- -- Step B1: create the org, capture the id
+-- insert into public.organizations (name, slug, product)
+--   values ('Acme Corp (Butterfly demo)', 'acme-butterfly', 'butterfly')
+-- returning id;  -- copy this uuid for step B3
+--
+-- -- Step B2: (optional) keep your Tasdiq profile row as-is;
+-- --         the Butterfly demo can share the same auth.users id. If your
+-- --         schema enforces one user row per auth id, update role + org_id:
+--
+-- -- Step B3: move your user into the new Butterfly org
+-- update public.users
+-- set org_id = '<paste-id-from-step-b1>',
+--     role   = 'hr_admin'
+-- where email = 'me@example.com';
+
+-- =============================================================
+-- Verify
+-- =============================================================
+-- select u.email, u.role, o.name, o.product
+-- from public.users u
+-- join public.organizations o on o.id = u.org_id;
