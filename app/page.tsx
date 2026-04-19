@@ -10,6 +10,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { PipelineDemo } from "@/components/landing/pipeline-demo";
 
 // Per-role landing. Product is the primary routing decision (see below);
 // role only matters *within* a product.
@@ -205,6 +206,32 @@ export default async function Home() {
               Create a Butterfly workspace &rarr;
             </div>
           </Link>
+        </div>
+      </section>
+
+      {/* Interactive pipeline demo */}
+      <section className="border-t border-hairline-subtle">
+        <div className="max-w-6xl mx-auto px-6 sm:px-10 py-20">
+          <div className="max-w-2xl mb-10">
+            <div className="text-micro uppercase text-ink-muted mb-3">
+              See how verification works
+            </div>
+            <h2 className="text-heading-1 text-ink">
+              Six fraud checks run on every capture.
+              <br />
+              <span className="text-ink-tertiary">
+                Watch them catch a fake one live.
+              </span>
+            </h2>
+            <p className="mt-4 text-body text-ink-secondary leading-relaxed">
+              The panel below cycles through Tasdiq&apos;s six-layer pipeline
+              on a simulated capture. It alternates between a genuine site
+              visit (everything passes) and a screen-replay attempt
+              (everything fails). Pause, click any layer, or flip the
+              scenario.
+            </p>
+          </div>
+          <PipelineDemo />
         </div>
       </section>
 
