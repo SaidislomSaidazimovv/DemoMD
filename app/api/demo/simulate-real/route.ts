@@ -3,6 +3,7 @@ import { createClient as createServerSupabase } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeEventHash } from "@/lib/ledger";
 import { runAllChecks } from "@/lib/fraud";
+import type { ClassifierResult } from "@/lib/ai";
 import type { Media, Workflow } from "@/lib/types";
 
 // Injects a REAL capture against the given workflow: GPS at site, human tremor,
@@ -61,6 +62,19 @@ export async function POST(req: Request) {
   };
   await sb.from("workflows").update({ meta: updatedMeta }).eq("id", workflow.id);
 
+  // Canned AI classifier result for the REAL demo path. Layer 6 shows as
+  // YES / passed so the demo displays a full 6-green-check breakdown.
+  // No narration — narrator only fires on FLAGGED captures.
+  const aiClassifier: ClassifierResult = {
+    verdict: "YES",
+    visible:
+      "Multi-storey reinforced concrete frame at mid-construction; scaffolding and floor slabs are visible.",
+    reasoning:
+      "The structure, materials, and stage of work are consistent with the claimed milestone.",
+    score: 1,
+    passed: true,
+  };
+
   const fraud = runAllChecks(
     {
       gps: workflow.meta.coordinates,
@@ -70,6 +84,7 @@ export async function POST(req: Request) {
       challengeSubmitted: workflow.meta.challenge_code,
       challengeIssuedAt: freshIssuedAt,
       capturedAt: now,
+      aiClassifier,
     },
     updatedMeta,
     existingHashes
@@ -101,6 +116,7 @@ export async function POST(req: Request) {
     },
     fraud_result: fraud,
     source: "real",
+    ai_progress: aiClassifier,
   };
 
   const { data: mediaRow } = await sb

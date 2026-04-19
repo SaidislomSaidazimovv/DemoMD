@@ -3,6 +3,8 @@ import { createClient as createServerSupabase } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeEventHash } from "@/lib/ledger";
 import { runAllChecks } from "@/lib/fraud";
+import { MODELS } from "@/lib/ai";
+import type { ClassifierResult } from "@/lib/ai";
 import type { Media, Workflow } from "@/lib/types";
 
 // Injects a FRAUD capture: GPS 2km off, phone flat, duplicate of stock hash,
@@ -45,6 +47,23 @@ export async function POST(req: Request) {
   const existingHashes = ((existingMedia ?? []) as { phash: string }[]).map((m) => m.phash);
   if (!existingHashes.includes(STOCK_FRAUD_PHASH)) existingHashes.push(STOCK_FRAUD_PHASH);
 
+  // Canned AI output so the demo's "wow moment" (spec-defined) renders
+  // end-to-end without a live Gemini call. Real uploads run Gemini for
+  // real; the simulator hardcodes the kind of result a screen-replay
+  // capture would produce.
+  const aiClassifier: ClassifierResult = {
+    verdict: "NO",
+    visible:
+      "Static dark frame with grainy uniform texture — consistent with a playback screen, not a live scene.",
+    reasoning:
+      "The visible content doesn't match an actively-filmed construction site; combined with flat gyro, suggests screen replay.",
+    score: 0,
+    passed: false,
+  };
+  const aiNarration =
+    "The photo shows what appears to be concrete formwork, but the gyroscope was flat during capture — " +
+    "the inspector wasn't moving. This is typical of someone filming a screen replay rather than walking the site.";
+
   const now = new Date();
   const fraud = runAllChecks(
     {
@@ -59,6 +78,7 @@ export async function POST(req: Request) {
       challengeSubmitted: "XXXX",
       challengeIssuedAt: new Date(now.getTime() - 15 * 60 * 1000),
       capturedAt: now,
+      aiClassifier,
     },
     workflow.meta,
     existingHashes
@@ -92,6 +112,10 @@ export async function POST(req: Request) {
     },
     fraud_result: fraud,
     source: "fraud",
+    ai_progress: aiClassifier,
+    ai_narration: aiNarration,
+    ai_narration_model: MODELS.narrator,
+    ai_narration_at: now.toISOString(),
   };
 
   const { data: mediaRow } = await sb
@@ -135,6 +159,18 @@ export async function POST(req: Request) {
     event_type: "fraud_detected",
     actor_id: null,
     payload: { failed_layers: fraud.checks.filter((c) => !c.passed).map((c) => c.name) },
+  });
+  await writeLedger(sb, {
+    org_id: workflow.org_id,
+    workflow_id: workflow.id,
+    event_type: "ai_narration_generated",
+    actor_id: profile.id,
+    payload: {
+      media_id: mediaRow?.id ?? null,
+      model: MODELS.narrator,
+      length: aiNarration.length,
+      simulated: true,
+    },
   });
 
   const { data: updatedWf } = await sb
