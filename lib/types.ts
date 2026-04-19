@@ -196,7 +196,14 @@ export interface MediaMeta {
 }
 
 export interface FraudCheck {
-  name: "geofence" | "motion" | "screen_replay" | "duplicate" | "challenge";
+  name:
+    | "geofence"
+    | "motion"
+    | "screen_replay"
+    | "duplicate"
+    | "challenge"
+    // AI Layer 6 — see lib/ai.ts classifyProgress + runAllChecks
+    | "ai_progress_match";
   label: string;
   passed: boolean;
   score: number;

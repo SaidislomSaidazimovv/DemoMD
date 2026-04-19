@@ -4,16 +4,33 @@
 // and the capture page (to preview results client-side).
 
 import type { FraudCheck, FraudResult, WorkflowMeta } from "./types";
+import type { ClassifierResult } from "./ai";
 
+// Layer weights rebalanced after adding the AI progress-match layer.
+// Total must sum to 1.00.
+// The five original layers lost 0.10 weight proportionally to make room
+// for Layer 6, which is advisory (see AI_INTEGRATION_SPEC.md).
 export const CHECK_WEIGHTS = {
-  geofence: 0.25,
-  motion: 0.20,
-  screen_replay: 0.25,
-  duplicate: 0.15,
-  challenge: 0.15,
+  geofence: 0.23,       // was 0.25
+  motion: 0.18,         // was 0.20
+  screen_replay: 0.23,  // was 0.25
+  duplicate: 0.13,      // was 0.15
+  challenge: 0.13,      // was 0.15
+  ai_progress_match: 0.10,
 } as const;
 
 export const VERIFIED_THRESHOLD = 0.7;
+
+// Which layers force an automatic FLAG on failure regardless of aggregate.
+// The AI layer is NOT included — it's advisory. A single AI hiccup must
+// never FLAG a legitimate capture; only the algorithmic layers do that.
+const HARD_FAIL_LAYERS: FraudCheck["name"][] = [
+  "geofence",
+  "motion",
+  "screen_replay",
+  "duplicate",
+  "challenge",
+];
 
 // =============================================================
 // Math helpers
@@ -320,6 +337,28 @@ export interface CaptureInput {
   // Optional optical-flow proxy — mean Hamming distance between consecutive
   // dHashes of frames sampled during the capture window.
   frameChangeAvg?: number;
+  // Optional AI Layer 6 — when present, folded into the checks array as
+  // `ai_progress_match`. When absent (e.g. browser-side preview or AI
+  // disabled), the layer is simply omitted and the other five layers
+  // scale up to match their original weights.
+  aiClassifier?: ClassifierResult;
+}
+
+// Returns the FraudCheck shape for the AI Layer 6, given a classifier result.
+export function checkAiProgressMatch(result: ClassifierResult): FraudCheck {
+  return {
+    name: "ai_progress_match",
+    label: "AI Progress Match",
+    passed: result.passed,
+    weight: CHECK_WEIGHTS.ai_progress_match,
+    score: result.score,
+    details:
+      result.visible || result.reasoning
+        ? `${result.verdict}${result.visible ? ` · ${result.visible}` : ""}${
+            result.reasoning ? ` · ${result.reasoning}` : ""
+          }`
+        : `Verdict: ${result.verdict}`,
+  };
 }
 
 // Mean pairwise Hamming distance between consecutive dHashes in an ordered list.
@@ -352,13 +391,24 @@ export function runAllChecks(
       capturedAt: capture.capturedAt,
     }),
   ];
+  // Optional Layer 6 — only present when the server caller ran the AI
+  // classifier. The capture-page's client-side preview omits it and falls
+  // back to the original 5-layer scoring.
+  if (capture.aiClassifier) {
+    checks.push(checkAiProgressMatch(capture.aiClassifier));
+  }
+
   const aggregate = checks.reduce((s, c) => s + c.score * c.weight, 0);
-  // Hard rule per Tasdiq spec: any single failed layer forces FLAGGED regardless
-  // of aggregate. A replay attack that defeats 4 of 5 layers still fails the 5th,
-  // and weighted-average alone could let it slip above 0.7.
-  const allPassed = checks.every((c) => c.passed);
+
+  // Hard-fail rule: any non-AI algorithmic layer failure forces FLAGGED
+  // regardless of aggregate. The AI layer is excluded — it's advisory.
+  // A replay attack that defeats 4 of 5 algorithmic layers still fails
+  // the 5th, and weighted average alone could let it slip above 0.7.
+  const hardFailed = checks.some(
+    (c) => HARD_FAIL_LAYERS.includes(c.name) && !c.passed
+  );
   const verdict: "VERIFIED" | "FLAGGED" =
-    aggregate >= VERIFIED_THRESHOLD && allPassed ? "VERIFIED" : "FLAGGED";
+    aggregate >= VERIFIED_THRESHOLD && !hardFailed ? "VERIFIED" : "FLAGGED";
   return { checks, aggregate_score: aggregate, verdict };
 }
 

@@ -4,6 +4,8 @@ import { createClient as createServerSupabase } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeEventHash } from "@/lib/ledger";
 import { analyzeMotion, frameChangeMeanHamming, runAllChecks } from "@/lib/fraud";
+import { classifyProgress } from "@/lib/ai";
+import { runNarration } from "@/lib/ai-narration";
 import type { Media, Workflow } from "@/lib/types";
 
 // Server-side evidence upload + fraud pipeline.
@@ -109,15 +111,24 @@ export async function POST(req: Request) {
   const frameChangeAvg = frameChangeMeanHamming(payload.frame_dhashes ?? []);
 
   // 3. Existing perceptual hashes for duplicate check (all within this org)
-  const { data: existingMedia } = await admin
-    .from("media")
-    .select("phash")
-    .eq("org_id", workflow.org_id);
+  //    In parallel, run the AI classifier on the photo — Layer 6 of the
+  //    fraud pipeline. The classifier is advisory (excluded from the hard-
+  //    fail rule); on error it returns UNCLEAR with passed=true so AI
+  //    downtime never blocks uploads.
+  const photoBase64 = bytes.toString("base64");
+  const photoMimeType = file.type || "image/jpeg";
+  const [
+    { data: existingMedia },
+    aiClassifier,
+  ] = await Promise.all([
+    admin.from("media").select("phash").eq("org_id", workflow.org_id),
+    classifyProgress(photoBase64, photoMimeType, workflow.meta.milestone_description),
+  ]);
   const existingHashes = ((existingMedia ?? []) as { phash: string | null }[])
     .map((m) => m.phash)
     .filter((h): h is string => typeof h === "string" && h.length > 0);
 
-  // 4. Run the fraud pipeline
+  // 4. Run the fraud pipeline (5 algorithmic layers + AI Layer 6)
   const fraud = runAllChecks(
     {
       gps: payload.gps,
@@ -128,6 +139,7 @@ export async function POST(req: Request) {
       challengeIssuedAt: new Date(workflow.meta.challenge_issued_at),
       capturedAt: new Date(payload.captured_at),
       frameChangeAvg,
+      aiClassifier,
     },
     workflow.meta,
     existingHashes
@@ -180,6 +192,16 @@ export async function POST(req: Request) {
           frame_change_avg: frameChangeAvg,
         }
       : {}),
+    // AI Layer 6 verdict — stored even when the classifier returned
+    // UNCLEAR (which happens on API downtime). The UI shows this next to
+    // the other layers; future re-verification can re-run against it.
+    ai_progress: {
+      verdict: aiClassifier.verdict,
+      visible: aiClassifier.visible,
+      reasoning: aiClassifier.reasoning,
+      score: aiClassifier.score,
+      passed: aiClassifier.passed,
+    },
   };
 
   const { data: mediaRow, error: mediaErr } = await admin
@@ -265,9 +287,39 @@ export async function POST(req: Request) {
     },
   });
 
+  // 9. AI Narrator — runs inline ONLY on FLAGGED captures. The spec calls
+  //    for fire-and-forget HTTP from here, but Vercel serverless has a race
+  //    where the response can return before the child fetch starts.
+  //    Inlining adds ~2s to FLAGGED-upload latency, which is fine on a
+  //    "needs review" path, and guarantees the narration is in the response
+  //    so the UI can render the AI Review callout immediately.
+  //
+  //    On any failure (rate limit, API key missing, timeout), the narration
+  //    is skipped silently — the verdict still stands on its own.
+  let narratedMedia = mediaRow;
+  if (fraud.verdict === "FLAGGED") {
+    try {
+      await runNarration({
+        mediaId: mediaRow.id,
+        orgId: workflow.org_id,
+        actorId: profile.id,
+      });
+      // Re-fetch so the response includes the updated ai_narration fields.
+      const { data: fresh } = await admin
+        .from("media")
+        .select("*")
+        .eq("id", mediaRow.id)
+        .maybeSingle();
+      if (fresh) narratedMedia = fresh as Media;
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn("AI narration skipped:", (e as Error).message);
+    }
+  }
+
   return NextResponse.json({
     ok: true,
-    media: mediaRow,
+    media: narratedMedia,
     fraud,
     next_state: nextState,
   });
