@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { PipelineDemo } from "@/components/landing/pipeline-demo";
+import { ButterflyDemo } from "@/components/landing/butterfly-demo";
 
 // Per-role landing. Product is the primary routing decision (see below);
 // role only matters *within* a product.
@@ -232,6 +233,31 @@ export default async function Home() {
             </p>
           </div>
           <PipelineDemo />
+        </div>
+      </section>
+
+      {/* Butterfly explainer — contemplative opposite of the pipeline */}
+      <section className="border-t border-hairline-subtle bg-surface-subtle/30">
+        <div className="max-w-6xl mx-auto px-6 sm:px-10 py-20">
+          <div className="max-w-2xl mb-10">
+            <div className="text-micro uppercase text-ink-muted mb-3">
+              Butterfly — a different kind of record
+            </div>
+            <h2 className="text-heading-1 text-ink">
+              Tasdiq catches the bad actor.
+              <br />
+              <span className="text-ink-tertiary">
+                Butterfly doesn&apos;t know who anyone is.
+              </span>
+            </h2>
+            <p className="mt-4 text-body text-ink-secondary leading-relaxed">
+              Same platform, opposite data philosophy. Tasdiq remembers every
+              byte forever so fraud can&apos;t hide. Butterfly deliberately
+              forgets everything identifiable so employees can&apos;t be
+              exposed by their own HR log.
+            </p>
+          </div>
+          <ButterflyDemo />
         </div>
       </section>
 
