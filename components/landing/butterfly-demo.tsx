@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Check, X } from "lucide-react";
 
 // Butterfly landing explainer.
 //
@@ -100,7 +101,7 @@ export function ButterflyDemo() {
   const scenario = SCENARIOS[cycleIdx % SCENARIOS.length];
 
   // Drive the animation phases manually with timeouts so we can control the
-  // beats precisely between lines, transition, ledger, rest.
+  // beats precisely between lines, transition, receipt, rest.
   useEffect(() => {
     if (phase === "narrative") {
       if (lineIdx < scenario.narrative.length - 1) {
@@ -116,7 +117,7 @@ export function ButterflyDemo() {
       return () => clearTimeout(t);
     }
     if (phase === "ledger") {
-      // Tick the count up right as the ledger appears
+      // Tick the count up right as the receipt appears
       setCount((c) => c + 1);
       const t = setTimeout(() => setPhase("rest"), LEDGER_HOLD);
       return () => clearTimeout(t);
@@ -131,10 +132,7 @@ export function ButterflyDemo() {
   }, [phase, lineIdx, scenario.narrative.length]);
 
   const narrativeVisible = phase === "narrative" || phase === "transition";
-  const ledgerVisible = phase === "ledger" || phase === "rest";
-
-  const demoTimestamp = formatQuarterStamp();
-  const demoHash = `${Math.floor(count * 7919).toString(16).padStart(6, "0")}${Math.floor(count * 1259).toString(16).padStart(6, "0")}…`;
+  const receiptVisible = phase === "ledger" || phase === "rest";
 
   return (
     <div className="theme-butterfly rounded-[28px] bg-[color:var(--bf-bg)] border border-[color:var(--bf-hair)] overflow-hidden">
@@ -170,8 +168,8 @@ export function ButterflyDemo() {
                 ))}
             </AnimatePresence>
 
-            {/* Once ledger is shown, leave a whispering line on the left */}
-            {ledgerVisible && (
+            {/* Once the receipt is shown, leave a whispering line on the left */}
+            {receiptVisible && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -184,50 +182,72 @@ export function ButterflyDemo() {
           </div>
         </div>
 
-        {/* RIGHT — the ledger entry. Monospace, clinical, brief. */}
+        {/* RIGHT — a privacy receipt in plain English. Replaces the
+             former monospace ledger panel, which non-technical viewers
+             (bank execs, HR directors, board members) found opaque. */}
         <div className="px-8 py-10 bg-[color:var(--bf-bg-muted)] flex flex-col">
           <div className="text-[11px] uppercase tracking-[0.14em] text-[color:var(--bf-caption)] mb-6">
-            What got logged
+            The entire record
           </div>
           <div className="flex-1 flex flex-col justify-center">
             <AnimatePresence mode="wait">
-              {ledgerVisible ? (
+              {receiptVisible ? (
                 <motion.div
-                  key={`ledger-${cycleIdx}`}
+                  key={`receipt-${cycleIdx}`}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.5 }}
-                  className="space-y-4"
+                  className="space-y-5"
                 >
-                  <div className="rounded-2xl border border-[color:var(--bf-hair)] bg-[color:var(--bf-bg)] p-5 space-y-3">
-                    <div className="font-mono text-[13px] text-[color:var(--bf-ink)] leading-[1.8]">
-                      <KeyValue k="event_type" v="checkin_initiated" />
-                      <KeyValue k="timestamp" v={demoTimestamp} />
-                      <KeyValue k="routing_type" v={scenario.routing} />
-                      <KeyValue
-                        k="accepted"
-                        v={scenario.accepted ? "true" : "false"}
-                      />
-                      <KeyValue k="actor_id" v="null" dim />
+                  {/* Plain-English positive list — what we KEEP */}
+                  <div className="rounded-2xl border border-[color:var(--bf-hair)] bg-[color:var(--bf-bg)] p-6 space-y-3">
+                    <ReceiptRow
+                      kind="keep"
+                      label="A check-in happened"
+                    />
+                    <ReceiptRow
+                      kind="keep"
+                      label={scenario.routingLabel}
+                    />
+                    <ReceiptRow
+                      kind="keep"
+                      label={
+                        scenario.accepted
+                          ? "The person accepted the resource"
+                          : scenario.routing === "self_resolved"
+                            ? "Resolved in the moment"
+                            : "The person declined"
+                      }
+                    />
+                  </div>
+
+                  {/* Negative list — what we deliberately DON'T record */}
+                  <div className="space-y-2">
+                    <div className="text-[11px] uppercase tracking-[0.14em] text-[color:var(--bf-caption)]">
+                      Not recorded
+                    </div>
+                    <div className="space-y-1.5">
+                      <ReceiptRow kind="drop" label="Who was involved" />
+                      <ReceiptRow kind="drop" label="What was said" />
+                      <ReceiptRow kind="drop" label="Exact time or place" />
+                      <ReceiptRow kind="drop" label="Any health information" />
                     </div>
                   </div>
-                  <div className="font-mono text-[11px] text-[color:var(--bf-caption)] break-all leading-relaxed">
-                    sha256:{demoHash}
-                  </div>
+
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.6 }}
                     className="text-[13px] text-[color:var(--bf-muted)] leading-relaxed"
                   >
-                    No names. No descriptions. No health data. The row auto-
-                    purges after 90 days — only the aggregate count survives.
+                    In 90 days even this receipt disappears. Only the total
+                    count carries forward into the quarterly report.
                   </motion.div>
                 </motion.div>
               ) : (
                 <motion.div
-                  key="ledger-wait"
+                  key="receipt-wait"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
@@ -270,24 +290,31 @@ export function ButterflyDemo() {
   );
 }
 
-function KeyValue({ k, v, dim = false }: { k: string; v: string; dim?: boolean }) {
+function ReceiptRow({
+  kind,
+  label,
+}: {
+  kind: "keep" | "drop";
+  label: string;
+}) {
+  if (kind === "keep") {
+    return (
+      <div className="flex items-center gap-3">
+        <span className="shrink-0 w-5 h-5 rounded-full bg-[color:var(--bf-verified)]/15 text-[color:var(--bf-verified)] flex items-center justify-center">
+          <Check size={12} strokeWidth={3} />
+        </span>
+        <span className="text-[15px] text-[color:var(--bf-ink)]">{label}</span>
+      </div>
+    );
+  }
   return (
-    <div className="flex items-baseline gap-3">
-      <span className="text-[color:var(--bf-caption)] shrink-0 w-28">{k}</span>
-      <span
-        className={dim ? "text-[color:var(--bf-caption)] italic" : "text-[color:var(--bf-ink)]"}
-      >
-        {v}
+    <div className="flex items-center gap-3">
+      <span className="shrink-0 w-5 h-5 rounded-full border border-[color:var(--bf-hair)] text-[color:var(--bf-caption)] flex items-center justify-center">
+        <X size={12} strokeWidth={3} />
+      </span>
+      <span className="text-[14px] text-[color:var(--bf-caption)] line-through decoration-[color:var(--bf-hair)]">
+        {label}
       </span>
     </div>
   );
-}
-
-function formatQuarterStamp(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const q = Math.floor(now.getMonth() / 3) + 1;
-  // Emit a truncated timestamp — deliberately not precise enough to
-  // identify an individual submission, matching the spec's aggregation.
-  return `${y}-Q${q}`;
 }

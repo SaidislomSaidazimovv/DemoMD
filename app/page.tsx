@@ -103,11 +103,11 @@ export default async function Home() {
             the records that matter.
           </h1>
           <p className="text-body text-ink-secondary max-w-2xl leading-relaxed">
-            We build software that turns phone cameras and 3-tap loggers into
-            legally-defensible evidence. Every record is hash-chained, every
-            audit is self-verifying, every byte is accounted for — and AI
-            reviews every submission in plain language so humans don&apos;t
-            have to read the technical fields.
+            Two products that turn phone cameras and 3-tap loggers into
+            records you can defend in court. Every entry is cryptographically
+            sealed, every audit verifies itself, every change shows up
+            immediately. And AI reviews every submission in plain English,
+            so reviewers don&apos;t need to read the small print.
           </p>
           <div className="flex items-center gap-3 pt-2">
             <Link
@@ -147,22 +147,23 @@ export default async function Home() {
             </div>
             <h2 className="mt-6 text-heading-1 text-ink">Tasdiq</h2>
             <p className="mt-2 text-body text-ink-secondary leading-relaxed">
-              Construction-milestone verification for banks financing loans in
-              tranches. Six fraud checks, cryptographic audit trail, tamper-
-              evident tranche packs. Stop releasing money against photos that
-              could be anything.
+              Construction-milestone verification for banks that release
+              loans in stages. Six automatic checks, a sealed audit trail,
+              and legally-ready export packs. Stop paying against photos
+              that could be anything.
             </p>
             <ul className="mt-6 space-y-2 text-caption text-ink-tertiary">
               <Bullet>
-                GPS · human-tremor · sensor/camera consistency · duplicate
-                detection · challenge code · AI visual-match
+                Six checks per capture — location, hand motion, screen-replay,
+                duplicates, one-time code, AI visual review
               </Bullet>
               <Bullet>
-                Real-time dashboard — evidence arrives within 2 seconds of
-                capture
+                Bank officer sees verified or flagged evidence within two
+                seconds of the inspector pressing submit
               </Bullet>
               <Bullet>
-                Downloadable ZIP with PDF act, manifest, audit log, hash anchor
+                One-click download of a PDF act, all evidence, and a sealed
+                audit trail ready for regulators
               </Bullet>
             </ul>
             <div className="mt-6 text-caption text-accent inline-flex items-center gap-1 group-hover:gap-2 transition-all">
@@ -185,22 +186,23 @@ export default async function Home() {
             </div>
             <h2 className="mt-6 text-heading-1 text-ink">Butterfly</h2>
             <p className="mt-2 text-body text-ink-secondary leading-relaxed">
-              Anonymized check-in logging for mental-health and workplace
-              wellness interventions. Three taps, no names, auto-purges after
-              90 days. Compliance proof without the discovery risk of a
-              traditional HR log.
+              Anonymous check-in logging for mental-health and workplace-
+              wellness moments. Three taps, no names, everything deletes
+              itself after 90 days. Proof to the board without the legal
+              exposure of a traditional HR file.
             </p>
             <ul className="mt-6 space-y-2 text-caption text-ink-tertiary">
               <Bullet>
-                Aggregate counts only — zero personally-identifiable information
-                ever recorded
+                Counts only, never names. No descriptions, no health details,
+                no identifiable information — ever
               </Bullet>
               <Bullet>
-                Quarterly 5-page compliance PDF: OSHA · ADA · HIPAA · EPLI
-                posture
+                Quarterly PDF that reads like an annual report, covering
+                OSHA, ADA, HIPAA, and EPLI posture
               </Bullet>
               <Bullet>
-                90-day auto-purge with cryptographic chain re-stitch
+                Individual records delete themselves after 90 days. Only the
+                totals carry forward.
               </Bullet>
             </ul>
             <div className="mt-6 text-caption text-state-info inline-flex items-center gap-1 group-hover:gap-2 transition-all">
@@ -218,17 +220,17 @@ export default async function Home() {
               See how verification works
             </div>
             <h2 className="text-heading-1 text-ink">
-              Six fraud checks run on every capture.
+              Six checks run on every capture.
               <br />
               <span className="text-ink-tertiary">
                 Watch them catch a fake one live.
               </span>
             </h2>
             <p className="mt-4 text-body text-ink-secondary leading-relaxed">
-              The panel below cycles through Tasdiq&apos;s six-layer pipeline
-              on a simulated capture. It alternates between a genuine site
-              visit (everything passes) and a screen-replay attempt
-              (everything fails). Pause, click any layer, or flip the
+              The panel below walks through Tasdiq&apos;s six checks on a
+              simulated capture. It alternates between a genuine site visit
+              (everything passes) and a screen-replay attempt (everything
+              fails). You can pause it, jump to any check, or flip the
               scenario.
             </p>
           </div>
@@ -247,13 +249,13 @@ export default async function Home() {
               Tasdiq catches the bad actor.
               <br />
               <span className="text-ink-tertiary">
-                Butterfly doesn&apos;t know who anyone is.
+                Butterfly never learns who anyone is.
               </span>
             </h2>
             <p className="mt-4 text-body text-ink-secondary leading-relaxed">
-              Same platform, opposite data philosophy. Tasdiq remembers every
-              byte forever so fraud can&apos;t hide. Butterfly deliberately
-              forgets everything identifiable so employees can&apos;t be
+              Same platform, opposite data philosophy. Tasdiq keeps every
+              record forever so fraud can&apos;t hide. Butterfly keeps
+              almost nothing — on purpose — so employees can&apos;t be
               exposed by their own HR log.
             </p>
           </div>
@@ -276,22 +278,22 @@ export default async function Home() {
             <FeatureCard
               icon={<LockKeyhole className="text-accent" size={20} />}
               title="Tamper-evident by design"
-              description="Every event is SHA-256 hash-chained to the one before it. Change a single byte after the fact, the chain breaks and every verifier sees it. Export packs include the anchor so they self-verify offline — no call-home required."
+              description="Every entry is cryptographically linked to the one before it. Change a single byte after the fact and the seal breaks — anyone verifying the record can see it. Exported packs carry their own seal, so a regulator or lawyer can verify them offline without ever talking to us."
             />
             <FeatureCard
               icon={<Radio className="text-accent" size={20} />}
               title="Real-time, no refresh"
-              description="Inspector submits on their phone. Bank officer&apos;s laptop updates within 2 seconds. Manager taps three buttons. HR dashboard&apos;s count ticks up immediately. Supabase Realtime on every relevant table — no polling, no F5."
+              description="An inspector submits on their phone. The bank officer&apos;s laptop updates within two seconds. A manager taps three buttons. The HR dashboard&apos;s count ticks up immediately. No page refresh, no waiting."
             />
             <FeatureCard
               icon={<Eye className="text-accent" size={20} />}
               title="AI that does real work"
-              description="Google Gemini reviews every Tasdiq upload as Layer 6: does the photo actually match the claimed milestone? For flagged captures, it writes a plain-English explanation the bank officer can read in 3 seconds. Not decorative AI."
+              description="Google&apos;s Gemini reviews every Tasdiq capture and asks the question a human reviewer would: does the photo actually match the claimed milestone? When something looks wrong, it writes a two-sentence explanation the bank officer reads in seconds. Not decoration."
             />
             <FeatureCard
               icon={<FileCheck2 className="text-accent" size={20} />}
               title="Legal-grade output"
-              description="Tasdiq tranche packs are structured for bank regulators and (soon) E-IMZO-signed for court admissibility. Butterfly compliance PDFs include OSHA / ADA / HIPAA / EPLI posture analysis. Hand it to your lawyer, they can verify every byte."
+              description="Tasdiq export packs are structured for banking regulators and (soon) digitally signed via Uzbekistan&apos;s E-IMZO system for court admissibility. Butterfly quarterly reports include OSHA, ADA, HIPAA, and EPLI posture analysis. Hand either to your lawyer and every record is verifiable."
             />
           </div>
         </div>
@@ -315,10 +317,10 @@ export default async function Home() {
               </p>
               <p>
                 <strong className="text-ink">With Tasdiq:</strong> an inspector
-                captures 15 seconds of video on their phone. Six fraud layers
-                run on the server. The bank officer sees verified or flagged
-                evidence within 2 seconds. If fraud is detected, an AI summary
-                explains exactly what looks wrong.
+                records 15 seconds of video on their phone. Six automatic checks
+                run in the background. The bank officer sees verified or flagged
+                evidence within two seconds. When something looks wrong, an AI
+                summary explains exactly what.
               </p>
               <p>
                 <strong className="text-ink">Target customers:</strong> NBU,
@@ -343,10 +345,11 @@ export default async function Home() {
               </p>
               <p>
                 <strong className="text-ink">With Butterfly:</strong> managers
-                log a 3-tap check-in (no names, no text, just routing counts).
-                HR sees aggregate trends. Quarterly PDFs prove compliance to
-                the board without ever revealing an individual. Records
-                auto-delete after 90 days.
+                log a three-tap check-in — no names, no descriptions, just
+                which resource was offered and whether it was accepted. HR
+                sees the aggregate trend. Quarterly reports prove compliance
+                to the board without ever revealing an individual. Records
+                delete themselves after 90 days.
               </p>
               <p>
                 <strong className="text-ink">Target customers:</strong> Fortune
@@ -363,8 +366,8 @@ export default async function Home() {
         <div className="max-w-4xl mx-auto px-6 sm:px-10 py-20 text-center space-y-6">
           <h2 className="text-heading-1 text-ink">Ready to see it?</h2>
           <p className="text-body text-ink-secondary max-w-xl mx-auto">
-            Create a workspace in under a minute. The demo simulators let you
-            walk through the fraud-detection &ldquo;wow moment&rdquo; without
+            Create a workspace in under a minute. The built-in simulators let
+            you walk through the fraud-detection moment without
             needing a real construction site or live check-in.
           </p>
           <div className="flex items-center justify-center gap-3 pt-2">
